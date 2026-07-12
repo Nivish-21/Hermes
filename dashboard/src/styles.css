@@ -20,6 +20,8 @@ h2 { margin-top: 10px; font-size: 1.55rem; letter-spacing: -.04em; }
 .cost-panel h2 { color: #79f0b0; font-size: 2.6rem; }
 .comparison { display: flex; justify-content: space-between; gap: 20px; border-top: 1px solid #29365d; margin-top: 22px; padding-top: 15px; color: #aeb9df; font-size: .78rem; }
 .comparison strong { color: #eef2ff; }
+.comparison.savings { border-top: 0; margin-top: 0; padding-top: 8px; }
+.comparison.savings strong { color: #79f0b0; }
 .bar { height: 7px; background: #202b4d; border-radius: 10px; overflow: hidden; margin-top: 24px; }
 .bar span { display: block; height: 100%; background: #68e4a4; border-radius: inherit; }
 .section-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; }
@@ -28,6 +30,7 @@ h2 { margin-top: 10px; font-size: 1.55rem; letter-spacing: -.04em; }
 .run-row:hover, .run-row.selected { border-color: #40558b; background: #172241; }
 .run-row strong, .run-row small { display: block; }
 .run-row small { color: #7e8aad; font-size: .72rem; margin-top: 4px; }
+.run-row .outcome-counts { color: #aeb9df; }
 .run-cost { color: #99e9bd; font-size: .78rem; }
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #f2bc68; }
 .status-dot.success { background: #65e6a2; box-shadow: 0 0 9px #65e6a2; }
