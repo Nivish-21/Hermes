@@ -10,8 +10,10 @@
 
 import type * as betaSignup from "../betaSignup.js";
 import type * as dashboard from "../dashboard.js";
+import type * as http from "../http.js";
 import type * as ingest from "../ingest.js";
 import type * as operator from "../operator.js";
+import type * as registrations from "../registrations.js";
 import type * as requesterActivity from "../requesterActivity.js";
 import type * as requests from "../requests.js";
 import type * as tasks from "../tasks.js";
@@ -27,8 +29,10 @@ import type {
 declare const fullApi: ApiFromModules<{
   betaSignup: typeof betaSignup;
   dashboard: typeof dashboard;
+  http: typeof http;
   ingest: typeof ingest;
   operator: typeof operator;
+  registrations: typeof registrations;
   requesterActivity: typeof requesterActivity;
   requests: typeof requests;
   tasks: typeof tasks;

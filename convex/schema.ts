@@ -38,6 +38,14 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_telegramUserId", ["telegramUserId"]).index("by_status", ["status"]),
 
+  registrations: defineTable({
+    email: v.string(),
+    name: v.optional(v.string()),
+    company: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_email", ["email"]).index("by_createdAt", ["createdAt"]),
+
   tasks: defineTable({
     id: v.string(),
     runId: v.string(),
