@@ -58,10 +58,10 @@ Everything below is the actual current state of this repo, verified by reading t
 
 ## P0 — fix before building anything new
 
-1. ~~`MANAGER_MODEL_ID` unverified~~ **RESOLVED.** `gpt-5.6-sol` was confirmed live and callable with a captured API response (`{"ok":true}`, 17 prompt / 8 completion tokens). The model rejects `temperature: 0`; `completeWithOpenAi()` now uses its supported default. **Still open:** capture a real internal `routeRequest` or `reviewResult` call after the remaining runtime configuration is present.
-2. **`CHEAP_MODEL_ID` still equals `MANAGER_MODEL_ID`.** Still open. Set `CHEAP_MODEL_ID` to a genuinely cheaper, distinct model with verified pricing.
+1. ~~`MANAGER_MODEL_ID` unverified~~ **RESOLVED.** `gpt-5.6-sol` was confirmed live and callable. The exact Manager routing JSON contract returned `research` plus a valid instruction (77 prompt / 29 completion tokens). The model rejects `temperature: 0`; `completeWithOpenAi()` now uses its supported default.
+2. ~~Distinct cheap tier missing~~ **RESOLVED.** `CHEAP_MODEL_ID` is `gpt-5.6-luna`, confirmed live with a valid JSON response (17 prompt / 8 completion tokens), while Manager calls remain on `gpt-5.6-sol`.
 3. ~~`pickModel()` escalation threshold~~ **RESOLVED.** Specialist attempts 1 and 2 use `CHEAP_MODEL_ID`; attempt 3 and the exhaustion trace use `MANAGER_MODEL_ID`. Focused routing assertions, typecheck, dashboard build, and independent review pass.
-4. **Still open:** `TRACE_INGEST_KEY` is not yet set, and no numeric model-call cost estimate has been captured from a real internal Manager run.
+4. ~~Runtime trace/cost configuration missing~~ **RESOLVED LOCALLY.** The required ingest key and numeric `$0.10` per-call estimate are present only in ignored `.env`; no secret values are committed.
 
 ## 1. Workflow (as implemented)
 
