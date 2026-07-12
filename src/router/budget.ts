@@ -57,7 +57,6 @@ export function settleBudget(runId: string, estimatedUsd: number, actualUsd: num
   const settledSpend = currentSpend - estimatedUsd + actualUsd;
   const limitUsd = readUsdLimit();
   if (settledSpend > limitUsd) {
-    reservedByRun.set(runId, settledSpend);
     throw new BudgetExceededError(runId, settledSpend, limitUsd);
   }
   reservedByRun.set(runId, settledSpend);

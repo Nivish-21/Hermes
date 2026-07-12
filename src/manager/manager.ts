@@ -4,6 +4,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api.js";
 import type { Channel, Request, SpecialistId, Task, TaskResult } from "../lib/types.js";
 import { callModel, type ModelResponse } from "../router/modelRouter.js";
+import { clearRunBudget } from "../router/budget.js";
 import { runMessagingTask } from "../specialists/messaging.js";
 import { runResearchTask, type ResearchBrief } from "../specialists/research.js";
 import { endRun, startRun } from "../trace/tracer.js";
@@ -286,6 +287,10 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
     }
     return { request, result };
   } finally {
-    await endRun(runId);
+    try {
+      await endRun(runId);
+    } finally {
+      clearRunBudget(runId);
+    }
   }
 }
