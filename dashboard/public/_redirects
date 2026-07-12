@@ -1,1 +1,2 @@
-/dashboard /index.html 200
+/dashboard /?view=dashboard 302
+/dashboard/ /?view=dashboard 302

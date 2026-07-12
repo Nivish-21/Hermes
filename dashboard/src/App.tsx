@@ -228,7 +228,9 @@ export function DashboardPage() {
 }
 
 function App() {
-  return window.location.pathname === "/dashboard" ? <DashboardPage /> : <LandingPage />;
+  const dashboardRequested = window.location.pathname.replace(/\/$/, "") === "/dashboard"
+    || new URLSearchParams(window.location.search).get("view") === "dashboard";
+  return dashboardRequested ? <DashboardPage /> : <LandingPage />;
 }
 
 export default App;
