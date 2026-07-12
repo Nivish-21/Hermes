@@ -116,11 +116,11 @@ function parseJsonObject(text: string): Record<string, unknown> {
   }
 }
 
-function parsePlan(text: string): ManagerPlan {
+export function parseManagerPlan(text: string): ManagerPlan {
   const parsed = parseJsonObject(text);
   const specialist = parsed.specialist;
   const instruction = parsed.instruction;
-  if ((specialist !== "research" && specialist !== "messaging" && specialist !== "booking" && specialist !== "publish") || typeof instruction !== "string" || instruction.trim() === "") {
+  if ((specialist !== "research" && specialist !== "messaging" && specialist !== "booking") || typeof instruction !== "string" || instruction.trim() === "") {
     throw new Error("Manager returned an invalid routing plan");
   }
   return { specialist, instruction };
@@ -224,7 +224,7 @@ async function routeRequest(request: Request): Promise<RoutedPlan> {
     estimatedCostUsd: estimatedModelCost(),
     execute: (modelId) => completeWithOpenAi(modelId, prompt),
   });
-  return { plan: parsePlan(completion.value), traceId: completion.traceId };
+  return { plan: parseManagerPlan(completion.value), traceId: completion.traceId };
 }
 
 async function reviewResult(
@@ -331,7 +331,6 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
     };
     await createTask(task);
     let result = await executeTask(request, task, routed.traceId);
-    await updateTask(task, result);
     const review = await reviewResult(request, task, result, routed.traceId);
     // Research can be revised only before a Telegram reply attempt;
     // no specialist is replayed after an irreversible external side effect.
@@ -341,8 +340,8 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
         params: { instruction: `${routed.plan.instruction}\nRevision notes: ${review.notes}` },
       };
       result = await executeTask(request, retryTask, routed.traceId);
-      await updateTask(retryTask, result);
     }
+    await updateTask(task, result);
     return { request, result };
   } finally {
     try {

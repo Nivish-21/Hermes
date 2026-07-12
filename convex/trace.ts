@@ -155,7 +155,7 @@ export const endRun = mutation({
       }
     }
 
-    const successCount = tasks.filter((task) => latestVerifyByTask.get(task.id)?.verifyPass === true).length;
+    const successCount = tasks.filter((task) => task.status === "success" && latestVerifyByTask.get(task.id)?.verifyPass === true).length;
     const escalationCount = nodes.filter((node) => node.kind === "escalation").length;
     const status = tasks.length > 0 && successCount === tasks.length ? "success" : "failed";
     await ctx.db.patch(run._id, {
