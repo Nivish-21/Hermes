@@ -11,21 +11,23 @@ function requiredEnv(name: "CONVEX_URL" | "TRACE_INGEST_KEY"): string {
   return value;
 }
 
-const convexUrl = requiredEnv("CONVEX_URL");
-const ingestKey = requiredEnv("TRACE_INGEST_KEY");
+let client: ConvexHttpClient | undefined;
 
-const client = new ConvexHttpClient(convexUrl);
+function convexClient(): ConvexHttpClient {
+  client ??= new ConvexHttpClient(requiredEnv("CONVEX_URL"));
+  return client;
+}
 
 export async function startRun(): Promise<string> {
   const runId = crypto.randomUUID();
-  await client.mutation(api.trace.startRun, { ingestKey, runId });
+  await convexClient().mutation(api.trace.startRun, { ingestKey: requiredEnv("TRACE_INGEST_KEY"), runId });
   return runId;
 }
 
 export async function recordTrace(node: TraceNode): Promise<void> {
-  await client.mutation(api.trace.recordTrace, { ingestKey, ...node });
+  await convexClient().mutation(api.trace.recordTrace, { ingestKey: requiredEnv("TRACE_INGEST_KEY"), ...node });
 }
 
 export async function endRun(runId: string): Promise<void> {
-  await client.mutation(api.trace.endRun, { ingestKey, runId });
+  await convexClient().mutation(api.trace.endRun, { ingestKey: requiredEnv("TRACE_INGEST_KEY"), runId });
 }
