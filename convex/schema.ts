@@ -29,6 +29,7 @@ export default defineSchema({
     modelPath: v.array(v.string()),
     costUsd: v.number(),
     latencyMs: v.number(),
+    evidence: v.optional(v.string()),
   }).index("by_runId", ["runId"]).index("by_runIdAndId", ["runId", "id"]),
 
   traceNodes: defineTable({

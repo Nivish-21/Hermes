@@ -36,3 +36,34 @@ export const create = mutation({
     await ctx.db.patch(existing._id, args);
   },
 });
+
+export const update = mutation({
+  args: {
+    id: v.string(),
+    runId: v.string(),
+    status: taskStatus,
+    attempts: v.number(),
+    modelPath: v.array(v.string()),
+    costUsd: v.number(),
+    latencyMs: v.number(),
+    evidence: v.string(),
+  },
+  handler: async (ctx, args): Promise<void> => {
+    assertTelemetry("attempts", args.attempts, true);
+    assertTelemetry("costUsd", args.costUsd);
+    assertTelemetry("latencyMs", args.latencyMs);
+    const run = await ctx.db.query("runs").withIndex("by_runId", (q) => q.eq("runId", args.runId)).unique();
+    const task = await ctx.db.query("tasks").withIndex("by_runIdAndId", (q) => q.eq("runId", args.runId).eq("id", args.id)).unique();
+    if (run === null || run.status !== "running" || task === null) {
+      throw new Error(`Cannot update an unknown task in inactive run ${args.runId}/${args.id}`);
+    }
+    await ctx.db.patch(task._id, {
+      status: args.status,
+      attempts: args.attempts,
+      modelPath: args.modelPath,
+      costUsd: args.costUsd,
+      latencyMs: args.latencyMs,
+      evidence: args.evidence,
+    });
+  },
+});
