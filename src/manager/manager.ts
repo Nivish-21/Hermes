@@ -115,7 +115,7 @@ function parsePlan(text: string): ManagerPlan {
   const parsed = parseJsonObject(text);
   const specialist = parsed.specialist;
   const instruction = parsed.instruction;
-  if ((specialist !== "research" && specialist !== "messaging" && specialist !== "booking") || typeof instruction !== "string" || instruction.trim() === "") {
+  if ((specialist !== "research" && specialist !== "messaging" && specialist !== "booking" && specialist !== "publish") || typeof instruction !== "string" || instruction.trim() === "") {
     throw new Error("Manager returned an invalid routing plan");
   }
   return { specialist, instruction };

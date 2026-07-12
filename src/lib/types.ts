@@ -1,5 +1,5 @@
 export type Channel = "text" | "voice" | "dictation";
-export type SpecialistId = "research" | "messaging" | "booking";
+export type SpecialistId = "research" | "messaging" | "booking" | "publish";
 
 // runId groups every node of ONE request together. The dashboard groups by it — do not omit it.
 export type Request = {

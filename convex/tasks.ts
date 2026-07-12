@@ -2,7 +2,7 @@ import { mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { assertIngestKey, assertTelemetry } from "./ingest";
 
-const specialist = v.union(v.literal("research"), v.literal("messaging"), v.literal("booking"));
+const specialist = v.union(v.literal("research"), v.literal("messaging"), v.literal("booking"), v.literal("publish"));
 const taskStatus = v.union(v.literal("pending"), v.literal("running"), v.literal("success"), v.literal("failed"), v.literal("escalated"));
 const params = v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()));
 
