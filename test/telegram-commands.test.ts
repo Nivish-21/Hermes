@@ -199,6 +199,10 @@ test("approved beta users can research but cannot invoke shared workspace action
   await messaging.handle(update("/message shared channel post", 99));
   assert.equal(messaging.directCalls.length, 0);
   assert.match(messaging.replies[0] ?? "", /workspace approval/i);
+
+  const dashboard = harness({ allowedUserIds: new Set(), betaSignupStatus: "approved" });
+  await dashboard.handle(update("/dashboard", 99));
+  assert.match(dashboard.replies[0] ?? "", /shared proof dashboard/i);
 });
 
 test("/start and /help reply immediately without invoking the Manager", async () => {

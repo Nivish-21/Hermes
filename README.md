@@ -94,7 +94,7 @@ npx tsx scripts/approve-beta-user.ts <telegram-user-id> approved
 npx tsx scripts/approve-beta-user.ts <telegram-user-id> blocked
 ```
 
-Approved beta users can use `/research`, `/status`, `/cost`, `/dashboard`, `/start`, and `/help` in private DMs. Shared-channel messaging, booking, publishing, and free-form Manager routing remain operator-only until workspace-level destination permissions and user authentication are configured.
+Approved beta users can use `/research`, `/status`, `/cost`, `/start`, and `/help` in private DMs. The shared proof dashboard, shared-channel messaging, booking, publishing, and free-form Manager routing remain operator-only until workspace-level destination permissions and user authentication are configured.
 
 ## Telegram commands
 

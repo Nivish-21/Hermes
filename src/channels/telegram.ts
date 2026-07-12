@@ -430,8 +430,8 @@ export function createTelegramUpdateHandler(
     if (!claim.claimed) {
       return null;
     }
-    if (!isOperator && (command === null || !["start", "help", "research", "status", "cost", "dashboard"].includes(command.command))) {
-      await dependencies.sendPrivateReply(textUpdate.senderId, "Beta access currently supports /research, /status, /cost, and /dashboard. Workspace messaging, booking, publishing, and free-form routing require workspace approval.");
+    if (!isOperator && (command === null || !["start", "help", "research", "status", "cost"].includes(command.command))) {
+      await dependencies.sendPrivateReply(textUpdate.senderId, "Beta access currently supports /research, /status, and /cost. Workspace messaging, booking, publishing, free-form routing, and the shared proof dashboard require workspace approval.");
       await dependencies.completeUpdate(textUpdate.updateId, "succeeded");
       return null;
     }
