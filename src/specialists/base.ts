@@ -161,7 +161,7 @@ export async function runOavr<TState, TAction, TEvidence>(
     }
   }
 
-  const escalationModel = pickModel(2);
+  const escalationModel = pickModel(MAX_ATTEMPTS);
   const escalationTraceFailure = await traceSafely(
     traceNode(context.task, "escalation", escalationModel, false, context.parentId),
   );

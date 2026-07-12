@@ -50,7 +50,7 @@ export function pickModel(attempt: number, role: ModelRole = "specialist"): stri
   }
 
   const managerModelId = requiredModelId("MANAGER_MODEL_ID");
-  if (role === "manager" || attempt > 1) {
+  if (role === "manager" || attempt > 2) {
     return managerModelId;
   }
 
