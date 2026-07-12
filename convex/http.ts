@@ -11,6 +11,23 @@ const corsHeaders = {
   "access-control-allow-headers": "content-type",
 };
 
+const RATE_WINDOW_MS = 60 * 60 * 1_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+async function hash(value: string): Promise<string> {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function requesterAddress(request: Request): string | null {
+  const forwarded = request.headers.get("cf-connecting-ip") ?? request.headers.get("x-forwarded-for")?.split(",")[0];
+  return forwarded?.trim() || null;
+}
+
 function json(body: Record<string, unknown>, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -35,7 +52,34 @@ http.route({
       return json({ error: "Request body must be valid JSON." }, 400);
     }
     try {
+      if (isRecord(body) && typeof body.website === "string" && body.website.trim() !== "") {
+        return json({ registered: true }, 201);
+      }
       const registration = validateRegistration(body);
+      const now = Date.now();
+      const keys: Array<{ key: string; limit: number }> = [
+        { key: `email:${await hash(registration.email)}`, limit: 5 },
+      ];
+      const address = requesterAddress(request);
+      if (address !== null) keys.push({ key: `network:${await hash(address)}`, limit: 20 });
+      for (const entry of keys) {
+        const rate = await ctx.runMutation(internal.registrations.consumeRateLimit, {
+          key: entry.key,
+          now,
+          limit: entry.limit,
+          windowMs: RATE_WINDOW_MS,
+        });
+        if (!rate.allowed) {
+          return new Response(JSON.stringify({ error: "Too many registration attempts. Please try again later." }), {
+            status: 429,
+            headers: {
+              "content-type": "application/json",
+              "retry-after": String(Math.ceil(rate.retryAfterMs / 1_000)),
+              ...corsHeaders,
+            },
+          });
+        }
+      }
       await ctx.runMutation(internal.registrations.submit, registration);
       return json({ registered: true }, 201);
     } catch (error: unknown) {

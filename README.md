@@ -85,6 +85,8 @@ A live end-to-end test remains intentionally deferred until the configured allow
 
 ## Public beta onboarding
 
+The public React app serves the registration landing at `/` and the sanitized proof dashboard at `/dashboard`. It collects an email plus optional name/company through the public Convex `/register` HTTP action, uses a honeypot, and enforces hourly hashed email/network rate limits. Registration does not create an account or grant access.
+
 New people can privately message `@Switchboardxbot` and send `/start`. Their Telegram ID is stored as a pending beta application; it does not grant operational access automatically.
 
 Approve or block an application from the operator machine without editing environment allowlists:
@@ -94,7 +96,7 @@ npx tsx scripts/approve-beta-user.ts <telegram-user-id> approved
 npx tsx scripts/approve-beta-user.ts <telegram-user-id> blocked
 ```
 
-Approved beta users can use `/research`, `/status`, `/cost`, `/start`, and `/help` in private DMs. The shared proof dashboard, shared-channel messaging, booking, publishing, and free-form Manager routing remain operator-only until workspace-level destination permissions and user authentication are configured.
+Approved beta users can use `/research`, `/status`, `/cost`, `/start`, and `/help` in private DMs. The public dashboard contains only sanitized proof data; shared-channel messaging, booking, publishing, and free-form Manager routing remain operator-only until workspace-level destination permissions and user authentication are configured.
 
 ## Telegram commands
 
@@ -130,6 +132,8 @@ Deploy to Cloudflare Pages after configuring the public `VITE_CONVEX_URL` build 
 ```sh
 npm run dashboard:deploy
 ```
+
+The same bundle includes the registration landing, `/dashboard`, Terms, and Privacy pages, so one deployment keeps every public route synchronized.
 
 ## Scripts
 

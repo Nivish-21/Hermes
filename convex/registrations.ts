@@ -8,6 +8,34 @@ export type Registration = {
   company?: string;
 };
 
+type RateLimitState = {
+  windowStartedAt: number;
+  attempts: number;
+};
+
+export function evaluateRateLimit(
+  current: RateLimitState | null,
+  now: number,
+  limit: number,
+  windowMs: number,
+): { allowed: boolean; next: RateLimitState; retryAfterMs: number } {
+  if (current === null || now - current.windowStartedAt >= windowMs) {
+    return { allowed: true, next: { windowStartedAt: now, attempts: 1 }, retryAfterMs: 0 };
+  }
+  if (current.attempts >= limit) {
+    return {
+      allowed: false,
+      next: current,
+      retryAfterMs: Math.max(1, windowMs - (now - current.windowStartedAt)),
+    };
+  }
+  return {
+    allowed: true,
+    next: { ...current, attempts: current.attempts + 1 },
+    retryAfterMs: 0,
+  };
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -60,6 +88,22 @@ export const submit = internalMutation({
       return;
     }
     await ctx.db.patch(existing._id, { ...args, updatedAt: now });
+  },
+});
+
+export const consumeRateLimit = internalMutation({
+  args: { key: v.string(), now: v.number(), limit: v.number(), windowMs: v.number() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.query("registrationRateLimits").withIndex("by_key", (q) => q.eq("key", args.key)).unique();
+    const result = evaluateRateLimit(existing, args.now, args.limit, args.windowMs);
+    if (result.allowed) {
+      if (existing === null) {
+        await ctx.db.insert("registrationRateLimits", { key: args.key, ...result.next });
+      } else {
+        await ctx.db.patch(existing._id, result.next);
+      }
+    }
+    return { allowed: result.allowed, retryAfterMs: result.retryAfterMs };
   },
 });
 

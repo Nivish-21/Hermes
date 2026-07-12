@@ -9,9 +9,6 @@ export function isDashboardLoading(
 
 export type RunStatusFilter = "all" | "success" | "failed" | "running";
 
-export function filterRunsByStatus<T extends { status: string }>(
-  runs: readonly T[],
-  filter: RunStatusFilter,
-): T[] {
+export function filterRunsByStatus<T extends { status: string }>(runs: readonly T[], filter: RunStatusFilter): T[] {
   return filter === "all" ? [...runs] : runs.filter((run) => run.status === filter);
 }

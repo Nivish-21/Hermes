@@ -46,6 +46,12 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_email", ["email"]).index("by_createdAt", ["createdAt"]),
 
+  registrationRateLimits: defineTable({
+    key: v.string(),
+    windowStartedAt: v.number(),
+    attempts: v.number(),
+  }).index("by_key", ["key"]),
+
   tasks: defineTable({
     id: v.string(),
     runId: v.string(),

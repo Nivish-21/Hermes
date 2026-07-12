@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import { useQuery } from "convex/react";
-import { filterRunsByStatus, isDashboardLoading, type RunStatusFilter } from "./dashboard-state";
+import { isDashboardLoading } from "./dashboard-state";
 import { buildTraceForest, type TraceBranchView, type TraceNodeView } from "./trace-tree";
+import LandingPage from "./LandingPage";
+
+type SortKey = "startedAt" | "status" | "cost";
+type SortDirection = "ascending" | "descending";
 
 const money = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -10,42 +14,74 @@ const money = new Intl.NumberFormat("en-US", {
   minimumFractionDigits: 4,
 });
 
-function TraceBranch({ branch }: { branch: TraceBranchView }) {
+const timestamp = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+function statusLabel(node: TraceNodeView): string {
+  if (node.kind === "escalation") return "escalated";
+  if (node.verifyPass === true) return "verified";
+  if (node.verifyPass === false) return "failed";
+  return "recorded";
+}
+
+function TraceBranch({
+  branch,
+  depth,
+  expandedNodeIds,
+  onToggle,
+}: {
+  branch: TraceBranchView;
+  depth: number;
+  expandedNodeIds: Set<string>;
+  onToggle: (nodeId: string) => void;
+}) {
   const { node, children } = branch;
-  const [expanded, setExpanded] = useState(true);
-  const content = (
-    <>
-      <div className="trace-card-heading">
-        <strong>{node.kind}</strong>
-        <span className="trace-card-meta">
-          {node.verifyPass !== undefined && (
-            <span className={node.verifyPass ? "pass" : "fail"}>
-              {node.verifyPass ? "verified" : "failed"}
-            </span>
-          )}
-          {children.length > 0 && <span className="chevron" aria-hidden="true">{expanded ? "−" : "+"}</span>}
-        </span>
-      </div>
-      <span className="muted">{node.model}</span>
-      <span className="trace-stats">
-        {node.latencyMs}ms · {money.format(node.costUsd)} · {node.promptTok + node.complTok} tokens
-      </span>
-    </>
-  );
+  const isExpanded = expandedNodeIds.has(node.id);
+  const hasDetails = children.length > 0 || isExpanded;
+  const tokens = node.promptTok + node.complTok;
+
   return (
-    <li className={`trace-node ${node.kind}`}>
-      {children.length > 0 ? (
+    <li className="trace-branch">
+      <div className="trace-row" style={{ "--depth": depth } as React.CSSProperties}>
         <button
-          aria-expanded={expanded}
-          className="trace-card trace-toggle"
-          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={hasDetails}
+          aria-label={`${isExpanded ? "Collapse" : "Expand"} ${node.kind} trace node`}
+          className={`tree-toggle ${hasDetails ? "open" : ""}`}
+          onClick={() => onToggle(node.id)}
           type="button"
         >
-          {content}
+          <span aria-hidden="true">›</span>
         </button>
-      ) : <div className="trace-card">{content}</div>}
-      {expanded && children.length > 0 && (
-        <ul>{children.map((child) => <TraceBranch key={child.node.id} branch={child} />)}</ul>
+        <span className={`node-dot ${statusLabel(node)}`} aria-label={statusLabel(node)} />
+        <span className="node-kind">{node.kind}</span>
+        <span className="node-model">{node.model}</span>
+        <span className="node-latency">{node.latencyMs} ms</span>
+        <span className="node-cost">{money.format(node.costUsd)}</span>
+      </div>
+      {isExpanded && (
+        <div className="node-detail" style={{ "--depth": depth } as React.CSSProperties}>
+          <span>node {node.id.slice(0, 12)}</span>
+          <span>{tokens} tokens</span>
+          <span>{timestamp.format(node.ts)}</span>
+        </div>
+      )}
+      {children.length > 0 && (
+        <ul className="trace-children">
+          {children.map((child) => (
+            <TraceBranch
+              branch={child}
+              depth={depth + 1}
+              expandedNodeIds={expandedNodeIds}
+              key={child.node.id}
+              onToggle={onToggle}
+            />
+          ))}
+        </ul>
       )}
     </li>
   );
@@ -53,31 +89,53 @@ function TraceBranch({ branch }: { branch: TraceBranchView }) {
 
 function TraceTree({ nodes, loading }: { nodes: TraceNodeView[]; loading: boolean }) {
   const forest = useMemo(() => buildTraceForest(nodes), [nodes]);
-  if (loading) return <p className="muted">Loading live trace…</p>;
-  if (forest.length === 0) return <p className="muted">No trace nodes yet.</p>;
-  return <ul className="trace-tree">{forest.map((branch) => <TraceBranch key={branch.node.id} branch={branch} />)}</ul>;
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setExpandedNodeIds(new Set());
+  }, [nodes]);
+
+  const toggle = (nodeId: string) => {
+    setExpandedNodeIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
+      return next;
+    });
+  };
+
+  if (loading) return <p className="empty-state">Loading trace data</p>;
+  if (forest.length === 0) return <p className="empty-state">No trace nodes recorded for this run.</p>;
+
+  return (
+    <div className="trace-tree-wrap">
+      <div className="trace-columns" aria-hidden="true"><span>step</span><span>model</span><span>latency</span><span>cost</span></div>
+      <ul className="trace-tree">
+        {forest.map((branch) => (
+          <TraceBranch
+            branch={branch}
+            depth={0}
+            expandedNodeIds={expandedNodeIds}
+            key={branch.node.id}
+            onToggle={toggle}
+          />
+        ))}
+      </ul>
+    </div>
+  );
 }
 
-function App() {
+export function DashboardPage() {
   const runsResult = useQuery(api.dashboard.listRuns);
   const runs = runsResult ?? [];
-  const requestedRunId = new URLSearchParams(window.location.search).get("run");
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(requestedRunId);
-  const [followLatest, setFollowLatest] = useState(requestedRunId === null);
-  const [statusFilter, setStatusFilter] = useState<RunStatusFilter>("all");
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("startedAt");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("descending");
 
   useEffect(() => {
     const selectionStillExists = runs.some((run) => run.runId === selectedRunId);
-    if (followLatest || !selectionStillExists) setSelectedRunId(runs[0]?.runId ?? null);
-  }, [followLatest, runs, selectedRunId]);
-
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    if (selectedRunId === null) url.searchParams.delete("run");
-    else url.searchParams.set("run", selectedRunId);
-    window.history.replaceState(null, "", url);
-  }, [selectedRunId]);
+    if (!selectionStillExists) setSelectedRunId(runs[0]?.runId ?? null);
+  }, [runs, selectedRunId]);
 
   const selectedRun = runs.find((run) => run.runId === selectedRunId);
   const runData = useQuery(
@@ -87,150 +145,90 @@ function App() {
   const nodes = runData?.nodes ?? [];
   const actualCost = runData?.actualCostUsd ?? selectedRun?.totalCostUsd ?? 0;
   const frontierCost = runData?.frontierOnlyEstimateUsd ?? 0;
-  const savings = Math.max(0, frontierCost - actualCost);
+  const savings = frontierCost - actualCost;
   const dashboardLoading = isDashboardLoading(runsResult, selectedRun, runData);
-  const filteredRuns = filterRunsByStatus(runs, statusFilter);
+  const sortedRuns = useMemo(() => [...runs].sort((a, b) => {
+    const left = sortKey === "cost" ? a.totalCostUsd : sortKey === "status" ? a.status : a.startedAt;
+    const right = sortKey === "cost" ? b.totalCostUsd : sortKey === "status" ? b.status : b.startedAt;
+    const result = typeof left === "string" && typeof right === "string" ? left.localeCompare(right) : Number(left) - Number(right);
+    return sortDirection === "ascending" ? result : -result;
+  }), [runs, sortDirection, sortKey]);
 
-  const selectRun = (runId: string) => {
-    setFollowLatest(false);
-    setSelectedRunId(runId);
-  };
-
-  const copyRunLink = () => {
-    const input = document.createElement("textarea");
-    input.value = window.location.href;
-    input.style.position = "fixed";
-    input.style.opacity = "0";
-    document.body.append(input);
-    input.select();
-    let copied = false;
-    try {
-      copied = document.execCommand("copy");
-    } catch {
-      copied = false;
+  const selectSort = (nextKey: SortKey) => {
+    if (sortKey === nextKey) setSortDirection((direction) => direction === "ascending" ? "descending" : "ascending");
+    else {
+      setSortKey(nextKey);
+      setSortDirection(nextKey === "startedAt" ? "descending" : "ascending");
     }
-    input.remove();
-    setCopyState(copied ? "copied" : "failed");
-    window.setTimeout(() => setCopyState("idle"), 3_000);
   };
+
+  const sortMarker = (key: SortKey) => sortKey === key ? (sortDirection === "ascending" ? "↑" : "↓") : "";
+  const deltaLabel = savings >= 0 ? "saved vs frontier" : "above frontier";
 
   return (
-    <main>
-      <header className="hero">
+    <main className="dashboard-shell">
+      <header className="workspace-header">
         <div>
-          <span className="eyebrow">SWITCHBOARD / LIVE PROOF</span>
-          <h1>Execution, not explanation.</h1>
-          <p>Every request becomes a run. Every run leaves a verifiable trail.</p>
+          <p className="section-label">switchboard / execution monitor</p>
+          <h1>Live runs</h1>
         </div>
-        <div className="hero-actions">
-          <button
-            aria-pressed={followLatest}
-            className={followLatest ? "control-button active" : "control-button"}
-            onClick={() => setFollowLatest((value) => !value)}
-            type="button"
-          >
-            {followLatest ? "Following latest" : "Follow latest"}
-          </button>
-          <div className="live-pill"><i /> Convex live</div>
-        </div>
+        <div className="connection-state"><span className="status-dot running" /> live Convex projection</div>
       </header>
 
-      <section className="metric-grid" aria-label="Selected run summary">
-        <article className="panel cost-panel">
-          <span className="eyebrow">ACTUAL ROUTED COST</span>
-          <h2>{dashboardLoading ? "…" : money.format(actualCost)}</h2>
-          <p>Recorded model spend for this run</p>
-          <div className="comparison">
-            <span>Frontier-only estimate</span>
-            <strong>{dashboardLoading ? "…" : money.format(frontierCost)}</strong>
-          </div>
-          <div className="comparison savings">
-            <span>Estimated savings</span>
-            <strong>{dashboardLoading ? "…" : money.format(savings)}</strong>
-          </div>
-        </article>
-        <article className="panel">
-          <span className="eyebrow">RUN STATUS</span>
-          <h2>{selectedRun?.status ?? "—"}</h2>
-          <p>{selectedRun === undefined ? "Select a completed run" : `${selectedRun.successCount} successful · ${selectedRun.escalationCount} escalated`}</p>
-          <div className="bar"><span style={{ width: selectedRun?.status === "success" ? "100%" : "35%" }} /></div>
-        </article>
-        <article className="panel">
-          <span className="eyebrow">TRACE NODES</span>
-          <h2>{dashboardLoading ? "…" : nodes.length}</h2>
-          <p>Manager → specialist → verify</p>
-        </article>
+      <section className="intake-region" aria-labelledby="intake-heading">
+        <div className="intake-copy"><h2 id="intake-heading">New request</h2><p>Runs begin from the allowlisted Telegram intake.</p></div>
+        <form className="intake-form" onSubmit={(event) => event.preventDefault()}>
+          <label className="sr-only" htmlFor="request-text">Request text</label>
+          <input id="request-text" placeholder="Send text or a voice note in Telegram to start a run" readOnly />
+          <button aria-label="Voice intake is available through Telegram" className="voice-control" disabled type="button">voice</button>
+          <button className="intake-submit" disabled type="submit">Telegram only</button>
+        </form>
       </section>
 
-      <section className="content-grid">
-        <article className="panel history">
-          <div className="section-heading">
-            <div><span className="eyebrow">RUN HISTORY</span><h2>Recent runs</h2></div>
-            <span className="count">{runs.length}</span>
-          </div>
-          <div className="filter-row" aria-label="Filter runs by status">
-            {(["all", "success", "failed", "running"] as const).map((filter) => (
+      <section className="cost-meter" aria-label="Selected run cost comparison">
+        <div className="cost-context"><span className="section-label">selected run</span><strong>{selectedRunId ? selectedRunId.slice(0, 12) : "no run selected"}</strong></div>
+        <div className="cost-value"><span>routed</span><strong>{dashboardLoading ? "…" : money.format(actualCost)}</strong></div>
+        <div className="cost-value"><span>frontier-only</span><strong>{dashboardLoading ? "…" : money.format(frontierCost)}</strong></div>
+        <div className={`cost-delta ${savings < 0 ? "negative" : ""}`}><span>{deltaLabel}</span><strong>{dashboardLoading ? "…" : money.format(Math.abs(savings))}</strong></div>
+      </section>
+
+      <div className="workspace-grid">
+        <section className="run-history" aria-labelledby="run-history-heading">
+          <div className="region-heading"><div><p className="section-label">run history</p><h2 id="run-history-heading">Recent runs</h2></div><span className="data-count">{runs.length}</span></div>
+          <div className="run-table" role="table" aria-label="Recent runs">
+            <div className="run-table-head" role="row">
+              <button onClick={() => selectSort("startedAt")} type="button">run / started {sortMarker("startedAt")}</button>
+              <button onClick={() => selectSort("status")} type="button">status {sortMarker("status")}</button>
+              <button onClick={() => selectSort("cost")} type="button">cost {sortMarker("cost")}</button>
+            </div>
+            {runsResult === undefined ? <p className="empty-state">Loading run history</p> : sortedRuns.length === 0 ? <p className="empty-state">No runs yet. Send an allowlisted Telegram request to begin.</p> : sortedRuns.map((run) => (
               <button
-                aria-pressed={statusFilter === filter}
-                className={statusFilter === filter ? "filter-button active" : "filter-button"}
-                key={filter}
-                onClick={() => setStatusFilter(filter)}
+                aria-pressed={run.runId === selectedRunId}
+                className={`run-table-row ${run.runId === selectedRunId ? "selected" : ""}`}
+                key={run.runId}
+                onClick={() => setSelectedRunId(run.runId)}
                 type="button"
               >
-                {filter}
+                <span><b>{run.runId.slice(0, 12)}</b><small>{timestamp.format(run.startedAt)}</small></span>
+                <span className="run-status"><i className={`status-dot ${run.status}`} />{run.status}</span>
+                <span>{money.format(run.totalCostUsd)}</span>
               </button>
             ))}
           </div>
-          {runsResult === undefined ? (
-            <p className="muted">Loading live run history…</p>
-          ) : runs.length === 0 ? (
-            <p className="muted">Waiting for the first request.</p>
-          ) : (
-            <div className="run-list">
-              {filteredRuns.length === 0 && <p className="muted filter-empty">No {statusFilter} runs.</p>}
-              {filteredRuns.map((run) => {
-                const index = runs.findIndex((candidate) => candidate.runId === run.runId);
-                return (
-                <button
-                  aria-pressed={run.runId === selectedRunId}
-                  className={run.runId === selectedRunId ? "run-row selected" : "run-row"}
-                  key={run.runId}
-                  onClick={() => selectRun(run.runId)}
-                >
-                  <span className={`status-dot ${run.status}`} />
-                  <span>
-                    <strong>{index === 0 ? "Latest run" : `Prior run ${index}`}</strong>
-                    <small>{new Date(run.startedAt).toLocaleString()} · {run.status}</small>
-                    <small className="outcome-counts">{run.successCount} successful · {run.escalationCount} escalated</small>
-                  </span>
-                  <span className="run-cost">{money.format(run.totalCostUsd)}</span>
-                </button>
-                );
-              })}
-            </div>
-          )}
-        </article>
+        </section>
 
-        <article className="panel trace-panel">
-          <div className="section-heading">
-            <div><span className="eyebrow">LIVE TRACE TREE</span><h2>Decision trail</h2></div>
-            <div className="trace-actions">
-              <button
-                className="control-button"
-                disabled={selectedRunId === null}
-                onClick={copyRunLink}
-                type="button"
-              >
-                {copyState === "copied" ? "Link copied" : copyState === "failed" ? "Copy failed" : "Copy run link"}
-              </button>
-              <span className="badge">{dashboardLoading ? "…" : nodes.length} nodes</span>
-            </div>
-          </div>
-          <TraceTree nodes={nodes} loading={dashboardLoading} />
-        </article>
-      </section>
+        <section className="trace-region" aria-labelledby="trace-heading">
+          <div className="region-heading"><div><p className="section-label">execution trace</p><h2 id="trace-heading">Decision tree</h2></div><span className="trace-count">{dashboardLoading ? "…" : nodes.length} steps</span></div>
+          <p className="trace-note">Expand a step to inspect its recorded cost, token count, and timestamp.</p>
+          <TraceTree loading={dashboardLoading} nodes={nodes} />
+        </section>
+      </div>
     </main>
   );
+}
+
+function App() {
+  return window.location.pathname === "/dashboard" ? <DashboardPage /> : <LandingPage />;
 }
 
 export default App;
