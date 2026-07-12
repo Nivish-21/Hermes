@@ -1,7 +1,6 @@
 .claude/
 .env
 .env.local
-convex/_generated/
 .hermes/
 node_modules/
 dashboard/dist/
