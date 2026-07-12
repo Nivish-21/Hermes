@@ -131,32 +131,42 @@ async function persistRequest(request: Request): Promise<void> {
   await convexClient().mutation(api.requests.create, { ...request, status: "running" });
 }
 
-async function saveResearchEvidence(task: Task, brief: ResearchBrief): Promise<void> {
-  const params = {
-    query: brief.query,
-    researchBrief: JSON.stringify(brief),
-    evidenceType: "research-brief",
-  };
+async function createTask(task: Task): Promise<void> {
+  const instruction = typeof task.params.instruction === "string" ? task.params.instruction : "";
   await convexClient().mutation(api.tasks.create, {
     ...task,
-    params,
-    status: "success",
-    attempts: 1,
+    params: { instruction },
+    status: "running",
+    attempts: 0,
     modelPath: [],
     costUsd: 0,
     latencyMs: 0,
   });
 }
 
-async function persistMessagingTask(task: Task, result: TaskResult): Promise<void> {
-  await convexClient().mutation(api.tasks.create, {
-    ...task,
-    params: { evidence: JSON.stringify(result.evidence), instruction: String(task.params.instruction ?? "") },
+async function updateTask(task: Task, result: TaskResult, evidence: unknown = result.evidence): Promise<void> {
+  await convexClient().mutation(api.tasks.update, {
+    id: task.id,
+    runId: task.runId,
     status: result.status,
     attempts: result.attempts,
     modelPath: result.modelPath,
     costUsd: result.costUsd,
     latencyMs: result.latencyMs,
+    evidence: JSON.stringify(evidence),
+  });
+}
+
+async function saveResearchEvidence(task: Task, brief: ResearchBrief): Promise<void> {
+  await convexClient().mutation(api.tasks.update, {
+    id: task.id,
+    runId: task.runId,
+    status: "running",
+    attempts: 1,
+    modelPath: [],
+    costUsd: 0,
+    latencyMs: 0,
+    evidence: JSON.stringify(brief),
   });
 }
 
@@ -207,9 +217,7 @@ async function executeTask(request: Request, task: Task): Promise<TaskResult> {
   if (task.template === "research") {
     return runResearchTask(task, request.requester, instruction, async ({ brief }) => saveResearchEvidence(task, brief));
   }
-  const result = await runMessagingTask(task, request.requester, instruction);
-  await persistMessagingTask(task, result);
-  return result;
+  return runMessagingTask(task, request.requester, instruction);
 }
 
 export async function manageRequest(incoming: IncomingRequest): Promise<ManagedRunResult> {
@@ -233,13 +241,16 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
       template: plan.specialist,
       params: { instruction: plan.instruction },
     };
+    await createTask(task);
     let result = await executeTask(request, task);
+    await updateTask(task, result);
     const review = await reviewResult(request, task, result);
     // Research can be revised only before a Telegram reply attempt;
     // no specialist is replayed after an irreversible external side effect.
     if (!review.accept && task.template === "research" && !hasAttemptedResearchReply(result.evidence)) {
       const retryTask: Task = { ...task, params: { instruction: `${plan.instruction}\nRevision notes: ${review.notes}` } };
       result = await executeTask(request, retryTask);
+      await updateTask(retryTask, result);
     }
     return { request, result };
   } finally {
