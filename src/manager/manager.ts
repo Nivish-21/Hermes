@@ -82,7 +82,6 @@ async function completeWithOpenAi(modelId: string, prompt: string): Promise<Mode
     },
     body: JSON.stringify({
       model: modelId,
-      temperature: 0,
       messages: [{ role: "user", content: prompt }],
     }),
   });
