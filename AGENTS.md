@@ -33,14 +33,14 @@
 - `TRACE_INGEST_KEY` must match the Convex deployment environment for tracing to work.
 - Run `npx convex dev --once --typecheck enable` after Convex schema/function changes; it regenerates ignored `convex/_generated/` bindings.
 
-## Shared vault protocol
+## Local environment transfer protocol
 
-- Use a password-manager vault named `Switchboard Hackathon`; 1Password is recommended for the fastest setup, though Bitwarden is acceptable.
-- Grant access only to Nivish's technical devices. The marketing collaborator does not need runtime credentials.
-- Store one secure item per provider: OpenAI, Convex trace ingestion, Telegram, Linkup, and Cloudflare.
-- Copy vault values into each device's ignored repo-root `.env`, then run `npm run env:check` locally.
+- Keep all runtime values only in the technical owner's ignored repo-root `.env`.
+- Transfer `.env` directly between the technical devices through AirDrop, an encrypted drive, or another encrypted direct-transfer channel. Do not use GitHub, a commit, an issue, a pull request, or agent chat.
+- The marketing collaborator does not need runtime credentials.
+- After receiving the file, each technical device runs `npm run env:check` locally.
 - A secret is never pasted into GitHub, a commit, an issue, a pull request, a build log, `AGENTS.md`, or agent chat.
-- Rotate a credential immediately if it is pasted outside the vault or local ignored `.env`.
+- Rotate a credential immediately if it is pasted outside the approved local `.env` transfer path.
 
 ## Required checks before a push
 
