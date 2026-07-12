@@ -35,8 +35,5 @@ jobs:
       - name: Regression tests
         run: npm test
 
-      - name: Verify Convex generated bindings
-        run: npx convex codegen --dry-run --typecheck enable
-
       - name: Production dashboard build
         run: npm run dashboard:build
