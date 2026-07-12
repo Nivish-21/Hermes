@@ -3,3 +3,5 @@
 .hermes/
 node_modules/
 .DS_Store
+switchboard-plan.md
+switchboard-coordination.md
