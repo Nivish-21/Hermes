@@ -11,6 +11,7 @@
 import type * as dashboard from "../dashboard.js";
 import type * as ingest from "../ingest.js";
 import type * as operator from "../operator.js";
+import type * as requesterActivity from "../requesterActivity.js";
 import type * as requests from "../requests.js";
 import type * as tasks from "../tasks.js";
 import type * as telegramUpdates from "../telegramUpdates.js";
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   dashboard: typeof dashboard;
   ingest: typeof ingest;
   operator: typeof operator;
+  requesterActivity: typeof requesterActivity;
   requests: typeof requests;
   tasks: typeof tasks;
   telegramUpdates: typeof telegramUpdates;

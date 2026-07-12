@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { pollTelegramUpdates } from "../src/channels/telegram.js";
+import { pollTelegramUpdates, registerTelegramCommands } from "../src/channels/telegram.js";
 
 const POLL_TIMEOUT_SECONDS = 30;
 const RETRY_DELAY_MS = 1_000;
@@ -19,6 +19,8 @@ process.on("SIGTERM", stop);
 
 async function main(): Promise<void> {
   let offset: number | undefined;
+  await registerTelegramCommands();
+  console.log("Switchboard Telegram commands registered");
   console.log("Switchboard Telegram runner started");
 
   while (!stopping) {

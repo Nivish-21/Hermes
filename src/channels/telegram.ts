@@ -1,8 +1,14 @@
+import { randomUUID } from "node:crypto";
 import "dotenv/config";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "../../convex/_generated/api.js";
+import type { Request, SpecialistId, Task, TaskResult } from "../lib/types.js";
 import type { ManagedRunResult } from "../manager/manager.js";
 import { manageRequest } from "../manager/manager.js";
+import { clearRunBudget } from "../router/budget.js";
+import { runMessagingTask } from "../specialists/messaging.js";
+import { runResearchTask, type ResearchBrief } from "../specialists/research.js";
+import { endRun, startRun } from "../trace/tracer.js";
 
 type TelegramTextUpdate = {
   updateId: number;
@@ -14,15 +20,38 @@ type TelegramTextUpdate = {
   ts: number;
 };
 
-export type TelegramCommand = {
-  command: string;
+type SupportedCommand = "start" | "help" | "ask" | "research" | "message" | "status" | "cost" | "dashboard" | "book" | "publish";
+
+export type ParsedTelegramCommand = {
+  command: SupportedCommand;
   argument: string;
 };
 
-type CommandAction = {
-  prompt?: string;
-  reply?: string;
-};
+export const BOT_COMMANDS: ReadonlyArray<{ command: SupportedCommand; description: string }> = [
+  { command: "start", description: "Start Switchboard and see available commands" },
+  { command: "help", description: "Show Switchboard command help" },
+  { command: "ask", description: "Ask the Manager to route a request" },
+  { command: "research", description: "Run a sourced research task directly" },
+  { command: "message", description: "Post directly to the allowlisted channel" },
+  { command: "status", description: "Show your most recent request status" },
+  { command: "cost", description: "Show your latest routed and frontier cost" },
+  { command: "dashboard", description: "Open the live public trace dashboard" },
+  { command: "book", description: "Booking command — not live yet" },
+  { command: "publish", description: "Publishing command — not live yet" },
+];
+
+const SUPPORTED_COMMANDS = new Set<string>(BOT_COMMANDS.map(({ command }) => command));
+const HELP_TEXT = [
+  "Switchboard commands:",
+  "/ask <text> — let the Manager choose a specialist",
+  "/research <query> — run sourced research directly",
+  "/message <text> — post to the allowlisted channel",
+  "/status — show your latest request status",
+  "/cost — show your latest routed and frontier-estimate cost",
+  "/dashboard — open the live trace dashboard",
+  "/book — not live yet",
+  "/publish — not live yet",
+].join("\n");
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -45,20 +74,16 @@ function allowedUserIds(): Set<string> {
   return new Set(ids);
 }
 
-export function parseTelegramCommand(text: string): TelegramCommand | null {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("/")) {
+export function parseTelegramCommand(text: string): ParsedTelegramCommand | null {
+  const match = /^\s*\/([a-z]+)(?:@[a-z0-9_]+)?(?:\s+([\s\S]*?))?\s*$/i.exec(text);
+  if (match === null) {
     return null;
   }
-  const [rawCommand, ...parts] = trimmed.split(/\s+/);
-  if (rawCommand === undefined) {
+  const command = (match[1] ?? "").toLowerCase();
+  if (!SUPPORTED_COMMANDS.has(command)) {
     return null;
   }
-  const command = rawCommand.slice(1).split("@", 1)[0]?.toLowerCase();
-  if (command === undefined || command === "") {
-    return null;
-  }
-  return { command, argument: parts.join(" ") };
+  return { command: command as SupportedCommand, argument: (match[2] ?? "").trim() };
 }
 
 function parseTextUpdate(update: unknown): TelegramTextUpdate | null {
@@ -88,68 +113,35 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown Telegram update failure";
 }
 
-function helpText(): string {
-  return [
-    "Switchboard can route a request to Research, Messaging, or Booking.",
-    "Use /ask followed by a plain-English request.",
-    "Use /research followed by a research question.",
-    "Use /message followed by text for the allowlisted team channel.",
-    "Use /book followed by a calendar request.",
-    "Use /status or /cost for your latest run.",
-    "Use /dashboard for the configured dashboard link.",
-    "/publish is not live.",
-  ].join("\n");
-}
-
-async function sendPrivateReply(chatId: string, text: string): Promise<void> {
-  const response = await fetch(`https://api.telegram.org/bot${requiredEnv("TELEGRAM_BOT_TOKEN")}/sendMessage`, {
+async function telegramCall(method: string, payload: Record<string, unknown>): Promise<unknown> {
+  const response = await fetch(`https://api.telegram.org/bot${requiredEnv("TELEGRAM_BOT_TOKEN")}/${method}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+    body: JSON.stringify(payload),
   });
-  const payload = await response.json() as unknown;
-  if (!response.ok || !isRecord(payload) || payload.ok !== true) {
-    throw new Error("Telegram did not confirm the command reply");
+  const envelope = await response.json() as unknown;
+  if (!response.ok || !isRecord(envelope) || envelope.ok !== true) {
+    const description = isRecord(envelope) && typeof envelope.description === "string"
+      ? envelope.description
+      : `Telegram ${method} failed with HTTP ${response.status}`;
+    throw new Error(description);
   }
+  return envelope.result;
 }
 
-export async function resolveTelegramCommand(command: TelegramCommand, requester: string): Promise<CommandAction> {
-  if (command.command === "start" || command.command === "help") {
-    return { reply: helpText() };
+async function sendPrivateReply(requester: string, text: string): Promise<void> {
+  if (!allowedUserIds().has(requester)) {
+    throw new Error("Telegram replies are allowed only to configured users");
   }
-  if (command.command === "ask") {
-    return command.argument === "" ? { reply: "Use /ask followed by a request." } : { prompt: command.argument };
-  }
-  if (command.command === "research") {
-    return command.argument === "" ? { reply: "Use /research followed by a research question." } : { prompt: `Research this request with citations: ${command.argument}` };
-  }
-  if (command.command === "message") {
-    return command.argument === "" ? { reply: "Use /message followed by the exact team update to post." } : { prompt: `Post this exact message to the allowlisted team channel: ${command.argument}` };
-  }
-  if (command.command === "book") {
-    return command.argument === "" ? { reply: "Use /book followed by a calendar request." } : { prompt: `Book this calendar request: ${command.argument}` };
-  }
-  if (command.command === "status" || command.command === "cost") {
-    const lastRun = await convexClient().query(api.operator.lastRunForRequester, {
-      ingestKey: requiredEnv("TRACE_INGEST_KEY"),
-      requester,
-    });
-    if (lastRun === null) {
-      return { reply: "No completed Switchboard run exists for this account yet." };
-    }
-    if (command.command === "status") {
-      return { reply: `Latest run: ${lastRun.runStatus}. Task: ${lastRun.taskStatus}. Attempts: ${lastRun.attempts}.` };
-    }
-    return { reply: `Latest run cost: $${lastRun.totalCostUsd.toFixed(4)}.` };
-  }
-  if (command.command === "dashboard") {
-    const dashboardUrl = process.env.DASHBOARD_URL?.trim();
-    return { reply: dashboardUrl === undefined || dashboardUrl === "" ? "Dashboard URL is not configured yet." : dashboardUrl };
-  }
-  if (command.command === "publish") {
-    return { reply: `/${command.command} is pending and not available in the live Switchboard demo.` };
-  }
-  return { reply: helpText() };
+  await telegramCall("sendMessage", {
+    chat_id: requester,
+    text,
+    disable_web_page_preview: true,
+  });
+}
+
+export async function registerTelegramCommands(): Promise<void> {
+  await telegramCall("setMyCommands", { commands: BOT_COMMANDS });
 }
 
 async function completeTelegramUpdate(
@@ -165,6 +157,162 @@ async function completeTelegramUpdate(
     ...(runId === undefined ? {} : { runId }),
     ...(error === undefined ? {} : { error }),
   });
+}
+
+async function persistDirectRequest(request: Request, task: Task): Promise<void> {
+  const client = convexClient();
+  const ingestKey = requiredEnv("TRACE_INGEST_KEY");
+  await client.mutation(api.requests.create, { ingestKey, ...request, status: "running" });
+  await client.mutation(api.tasks.create, {
+    ingestKey,
+    ...task,
+    params: { instruction: String(task.params.instruction) },
+    status: "running",
+    attempts: 0,
+    modelPath: [],
+    costUsd: 0,
+    latencyMs: 0,
+  });
+}
+
+async function updateDirectTask(task: Task, result: TaskResult, evidence: unknown = result.evidence): Promise<void> {
+  await convexClient().mutation(api.tasks.update, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+    id: task.id,
+    runId: task.runId,
+    status: result.status,
+    attempts: result.attempts,
+    modelPath: result.modelPath,
+    costUsd: result.costUsd,
+    latencyMs: result.latencyMs,
+    evidence: JSON.stringify(evidence),
+  });
+}
+
+async function saveDirectResearchBrief(task: Task, brief: ResearchBrief): Promise<void> {
+  await convexClient().mutation(api.tasks.update, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+    id: task.id,
+    runId: task.runId,
+    status: "running",
+    attempts: 1,
+    modelPath: [],
+    costUsd: 0,
+    latencyMs: 0,
+    evidence: JSON.stringify(brief),
+  });
+}
+
+async function runDirectTask(
+  update: TelegramTextUpdate,
+  template: Extract<SpecialistId, "research" | "messaging">,
+  instruction: string,
+): Promise<ManagedRunResult> {
+  const runId = await startRun();
+  const request: Request = {
+    id: `telegram-${update.updateId}-${update.messageId}`,
+    runId,
+    channel: "text",
+    requester: update.senderId,
+    transcript: instruction,
+    ts: update.ts,
+  };
+  const task: Task = {
+    id: randomUUID(),
+    runId,
+    requestId: request.id,
+    template,
+    params: { instruction },
+  };
+
+  try {
+    await persistDirectRequest(request, task);
+    const result = template === "research"
+      ? await runResearchTask(task, request.requester, instruction, async ({ brief }) => saveDirectResearchBrief(task, brief))
+      : await runMessagingTask(task, request.requester, instruction);
+    await updateDirectTask(task, result);
+    return { request, result };
+  } finally {
+    try {
+      await endRun(runId);
+    } finally {
+      clearRunBudget(runId);
+    }
+  }
+}
+
+function dashboardUrl(): string {
+  const explicit = process.env.DASHBOARD_URL?.trim();
+  if (explicit !== undefined && explicit !== "") {
+    return explicit;
+  }
+  const project = process.env.CLOUDFLARE_PROJECT_NAME?.trim() || "switchboard";
+  return `https://${project}.pages.dev`;
+}
+
+async function latestRequesterActivity(requester: string): Promise<{
+  requestedAt: number;
+  status: "running" | "success" | "failed";
+  routedCostUsd: number;
+  frontierEstimateUsd: number;
+} | null> {
+  return convexClient().query(api.requesterActivity.latest, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+    requester,
+  });
+}
+
+async function handleCommand(update: TelegramTextUpdate, parsed: ParsedTelegramCommand): Promise<ManagedRunResult | null> {
+  if (parsed.command === "start" || parsed.command === "help") {
+    await sendPrivateReply(update.senderId, HELP_TEXT);
+    return null;
+  }
+  if (parsed.command === "dashboard") {
+    await sendPrivateReply(update.senderId, `Live Switchboard dashboard: ${dashboardUrl()}`);
+    return null;
+  }
+  if (parsed.command === "book" || parsed.command === "publish") {
+    await sendPrivateReply(update.senderId, `/${parsed.command} is not live yet. Use /help for available commands.`);
+    return null;
+  }
+  if (parsed.command === "status" || parsed.command === "cost") {
+    const latest = await latestRequesterActivity(update.senderId);
+    if (latest === null) {
+      await sendPrivateReply(update.senderId, "No previous Switchboard request was found for your Telegram account.");
+    } else if (parsed.command === "status") {
+      await sendPrivateReply(update.senderId, `Your latest request is ${latest.status} (submitted ${new Date(latest.requestedAt).toISOString()}).`);
+    } else {
+      await sendPrivateReply(
+        update.senderId,
+        `Latest request cost: routed $${latest.routedCostUsd.toFixed(6)}; frontier estimate $${latest.frontierEstimateUsd.toFixed(6)}.`,
+      );
+    }
+    return null;
+  }
+  if (parsed.argument === "") {
+    await sendPrivateReply(update.senderId, `Usage: /${parsed.command} <text>`);
+    return null;
+  }
+  if (parsed.command === "ask") {
+    const result = await manageRequest({
+      id: `telegram-${update.updateId}-${update.messageId}`,
+      channel: "text",
+      requester: update.senderId,
+      transcript: parsed.argument,
+      ts: update.ts,
+    });
+    await sendPrivateReply(update.senderId, `Manager task finished with status: ${result.result.status}.`);
+    return result;
+  }
+
+  const template = parsed.command === "message" ? "messaging" : "research";
+  const result = await runDirectTask(update, template, parsed.argument);
+  if (parsed.command === "message") {
+    await sendPrivateReply(update.senderId, `Message task finished with status: ${result.result.status}.`);
+  } else if (result.result.status !== "success") {
+    await sendPrivateReply(update.senderId, `Research task finished with status: ${result.result.status}.`);
+  }
+  return result;
 }
 
 export async function handleTelegramUpdate(update: unknown): Promise<ManagedRunResult | null> {
@@ -190,30 +338,23 @@ export async function handleTelegramUpdate(update: unknown): Promise<ManagedRunR
   let result: ManagedRunResult | undefined;
   try {
     const command = parseTelegramCommand(textUpdate.text);
-    const action = command === null ? { prompt: textUpdate.text } : await resolveTelegramCommand(command, textUpdate.senderId);
-    if (action.reply !== undefined) {
-      await sendPrivateReply(textUpdate.chatId, action.reply);
-      await completeTelegramUpdate(textUpdate.updateId, "succeeded");
-      return null;
-    }
-    if (action.prompt === undefined) {
-      throw new Error("Telegram command did not produce a request prompt");
-    }
-    result = await manageRequest({
-      id: `telegram-${textUpdate.updateId}-${textUpdate.messageId}`,
-      channel: "text",
-      requester: textUpdate.senderId,
-      transcript: action.prompt,
-      ts: textUpdate.ts,
-    });
-    const status = result.result.status === "success" ? "succeeded" : "failed";
+    result = command === null
+      ? await manageRequest({
+        id: `telegram-${textUpdate.updateId}-${textUpdate.messageId}`,
+        channel: "text",
+        requester: textUpdate.senderId,
+        transcript: textUpdate.text,
+        ts: textUpdate.ts,
+      })
+      : await handleCommand(textUpdate, command) ?? undefined;
+    const status = result === undefined || result.result.status === "success" ? "succeeded" : "failed";
     await completeTelegramUpdate(
       textUpdate.updateId,
       status,
-      result.request.runId,
-      status === "succeeded" ? undefined : `Specialist ended with ${result.result.status}`,
+      result?.request.runId,
+      status === "succeeded" ? undefined : `Specialist ended with ${result?.result.status ?? "failed"}`,
     );
-    return result;
+    return result ?? null;
   } catch (error: unknown) {
     const message = errorMessage(error);
     if (result === undefined) {
