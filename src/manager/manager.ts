@@ -36,7 +36,7 @@ export type ManagedRunResult = {
   result: TaskResult;
 };
 
-function requiredEnv(name: "CONVEX_URL" | "OPENAI_API_KEY"): string {
+function requiredEnv(name: "CONVEX_URL" | "OPENAI_API_KEY" | "TRACE_INGEST_KEY"): string {
   const value = process.env[name]?.trim();
   if (value === undefined || value === "") {
     throw new Error(`${name} is required`);
@@ -133,7 +133,11 @@ function convexClient(): ConvexHttpClient {
 }
 
 async function persistRequest(request: Request): Promise<void> {
-  await convexClient().mutation(api.requests.create, { ...request, status: "running" });
+  await convexClient().mutation(api.requests.create, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+    ...request,
+    status: "running",
+  });
 }
 
 async function createTask(task: Task): Promise<void> {
@@ -142,6 +146,7 @@ async function createTask(task: Task): Promise<void> {
     throw new Error("Task instruction must be a string before persistence");
   }
   await convexClient().mutation(api.tasks.create, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
     ...task,
     params: { instruction },
     status: "running",
@@ -154,6 +159,7 @@ async function createTask(task: Task): Promise<void> {
 
 async function updateTask(task: Task, result: TaskResult, evidence: unknown = result.evidence): Promise<void> {
   await convexClient().mutation(api.tasks.update, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
     id: task.id,
     runId: task.runId,
     status: result.status,
@@ -167,6 +173,7 @@ async function updateTask(task: Task, result: TaskResult, evidence: unknown = re
 
 async function saveResearchEvidence(task: Task, brief: ResearchBrief): Promise<void> {
   await convexClient().mutation(api.tasks.update, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
     id: task.id,
     runId: task.runId,
     status: "running",

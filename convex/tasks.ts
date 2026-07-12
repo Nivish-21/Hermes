@@ -1,6 +1,6 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
-import { assertTelemetry } from "./ingest";
+import { assertIngestKey, assertTelemetry } from "./ingest";
 
 const specialist = v.union(v.literal("research"), v.literal("messaging"));
 const taskStatus = v.union(v.literal("pending"), v.literal("running"), v.literal("success"), v.literal("failed"), v.literal("escalated"));
@@ -8,6 +8,7 @@ const params = v.record(v.string(), v.union(v.string(), v.number(), v.boolean(),
 
 export const create = mutation({
   args: {
+    ingestKey: v.string(),
     id: v.string(),
     runId: v.string(),
     requestId: v.string(),
@@ -20,6 +21,7 @@ export const create = mutation({
     latencyMs: v.number(),
   },
   handler: async (ctx, args): Promise<void> => {
+    assertIngestKey(args.ingestKey);
     assertTelemetry("attempts", args.attempts, true);
     assertTelemetry("costUsd", args.costUsd);
     assertTelemetry("latencyMs", args.latencyMs);
@@ -29,16 +31,18 @@ export const create = mutation({
       throw new Error(`Cannot add a task to inactive run or unknown request ${args.runId}/${args.requestId}`);
     }
     const existing = await ctx.db.query("tasks").withIndex("by_runIdAndId", (q) => q.eq("runId", args.runId).eq("id", args.id)).unique();
+    const { ingestKey: _, ...task } = args;
     if (existing === null) {
-      await ctx.db.insert("tasks", args);
+      await ctx.db.insert("tasks", task);
       return;
     }
-    await ctx.db.patch(existing._id, args);
+    await ctx.db.patch(existing._id, task);
   },
 });
 
 export const update = mutation({
   args: {
+    ingestKey: v.string(),
     id: v.string(),
     runId: v.string(),
     status: taskStatus,
@@ -49,6 +53,7 @@ export const update = mutation({
     evidence: v.string(),
   },
   handler: async (ctx, args): Promise<void> => {
+    assertIngestKey(args.ingestKey);
     assertTelemetry("attempts", args.attempts, true);
     assertTelemetry("costUsd", args.costUsd);
     assertTelemetry("latencyMs", args.latencyMs);

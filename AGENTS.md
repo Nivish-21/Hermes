@@ -31,7 +31,7 @@
 - Never commit `.env`, `.env.local`, tokens, API keys, bot tokens, or `TRACE_INGEST_KEY`.
 - Each local clone needs an ignored `.env` populated securely from `.env.example`.
 - `TRACE_INGEST_KEY` must match the Convex deployment environment for tracing to work.
-- Run `npx convex dev --once --typecheck enable` after Convex schema/function changes; it regenerates ignored `convex/_generated/` bindings.
+- Run `npx convex dev --once --typecheck enable` after Convex schema/function changes; it regenerates the tracked `convex/_generated/` bindings, which must be committed with the source change.
 
 ## Local environment transfer protocol
 

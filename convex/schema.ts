@@ -5,6 +5,7 @@ const channel = v.union(v.literal("text"), v.literal("voice"), v.literal("dictat
 const specialist = v.union(v.literal("research"), v.literal("messaging"));
 const taskStatus = v.union(v.literal("pending"), v.literal("running"), v.literal("success"), v.literal("failed"), v.literal("escalated"));
 const traceKind = v.union(v.literal("manager"), v.literal("specialist"), v.literal("verify"), v.literal("escalation"));
+const telegramUpdateStatus = v.union(v.literal("claimed"), v.literal("succeeded"), v.literal("failed"));
 const params = v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()));
 
 export default defineSchema({
@@ -17,6 +18,17 @@ export default defineSchema({
     ts: v.number(),
     status: v.string(),
   }).index("by_runId", ["runId"]).index("by_runIdAndId", ["runId", "id"]),
+
+  telegramUpdates: defineTable({
+    updateId: v.number(),
+    messageId: v.number(),
+    senderId: v.string(),
+    receivedAt: v.number(),
+    status: telegramUpdateStatus,
+    runId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+  }).index("by_updateId", ["updateId"]),
 
   tasks: defineTable({
     id: v.string(),

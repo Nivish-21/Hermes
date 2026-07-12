@@ -46,6 +46,7 @@ async function seedScenario(client: ConvexHttpClient, ingestKey: string, scenari
 
   await client.mutation(api.trace.startRun, { ingestKey, runId });
   await client.mutation(api.requests.create, {
+    ingestKey,
     id: requestId,
     runId,
     channel: "text",
@@ -55,6 +56,7 @@ async function seedScenario(client: ConvexHttpClient, ingestKey: string, scenari
     status: "completed",
   });
   await client.mutation(api.tasks.create, {
+    ingestKey,
     id: taskId,
     runId,
     requestId,

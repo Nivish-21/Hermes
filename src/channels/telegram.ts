@@ -1,4 +1,6 @@
 import "dotenv/config";
+import { ConvexHttpClient } from "convex/browser";
+import { api } from "../../convex/_generated/api.js";
 import type { ManagedRunResult } from "../manager/manager.js";
 import { manageRequest } from "../manager/manager.js";
 
@@ -12,6 +14,14 @@ type TelegramTextUpdate = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function requiredEnv(name: "CONVEX_URL" | "TELEGRAM_BOT_TOKEN" | "TRACE_INGEST_KEY"): string {
+  const value = process.env[name]?.trim();
+  if (value === undefined || value === "") {
+    throw new Error(`${name} is required`);
+  }
+  return value;
 }
 
 function allowedUserIds(): Set<string> {
@@ -40,6 +50,29 @@ function parseTextUpdate(update: unknown): TelegramTextUpdate | null {
   };
 }
 
+function convexClient(): ConvexHttpClient {
+  return new ConvexHttpClient(requiredEnv("CONVEX_URL"));
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown Telegram update failure";
+}
+
+async function completeTelegramUpdate(
+  updateId: number,
+  status: "succeeded" | "failed",
+  runId?: string,
+  error?: string,
+): Promise<void> {
+  await convexClient().mutation(api.telegramUpdates.complete, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+    updateId,
+    status,
+    ...(runId === undefined ? {} : { runId }),
+    ...(error === undefined ? {} : { error }),
+  });
+}
+
 export async function handleTelegramUpdate(update: unknown): Promise<ManagedRunResult | null> {
   const textUpdate = parseTextUpdate(update);
   if (textUpdate === null || textUpdate.text.trim() === "") {
@@ -49,21 +82,36 @@ export async function handleTelegramUpdate(update: unknown): Promise<ManagedRunR
     return null;
   }
 
-  return manageRequest({
-    id: `telegram-${textUpdate.updateId}-${textUpdate.messageId}`,
-    channel: "text",
-    requester: textUpdate.senderId,
-    transcript: textUpdate.text,
-    ts: textUpdate.ts,
+  const claim = await convexClient().mutation(api.telegramUpdates.claim, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+    updateId: textUpdate.updateId,
+    messageId: textUpdate.messageId,
+    senderId: textUpdate.senderId,
+    receivedAt: textUpdate.ts,
   });
-}
-
-function requiredBotToken(): string {
-  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  if (token === undefined || token === "") {
-    throw new Error("TELEGRAM_BOT_TOKEN is required");
+  if (!claim.claimed) {
+    return null;
   }
-  return token;
+
+  try {
+    const result = await manageRequest({
+      id: `telegram-${textUpdate.updateId}-${textUpdate.messageId}`,
+      channel: "text",
+      requester: textUpdate.senderId,
+      transcript: textUpdate.text,
+      ts: textUpdate.ts,
+    });
+    await completeTelegramUpdate(textUpdate.updateId, "succeeded", result.request.runId);
+    return result;
+  } catch (error: unknown) {
+    const message = errorMessage(error);
+    try {
+      await completeTelegramUpdate(textUpdate.updateId, "failed", undefined, message);
+    } catch (completionError: unknown) {
+      console.error("Telegram update failure could not be persisted", { message: errorMessage(completionError) });
+    }
+    throw error;
+  }
 }
 
 function parseUpdates(value: unknown): unknown[] {
@@ -85,7 +133,7 @@ export async function pollTelegramUpdates(
     parameters.set("offset", String(offset));
   }
   const response = await fetch(
-    `https://api.telegram.org/bot${requiredBotToken()}/getUpdates?${parameters.toString()}`,
+    `https://api.telegram.org/bot${requiredEnv("TELEGRAM_BOT_TOKEN")}/getUpdates?${parameters.toString()}`,
   );
   if (!response.ok) {
     throw new Error(`Telegram getUpdates failed with HTTP ${response.status}`);
@@ -104,8 +152,7 @@ export async function pollTelegramUpdates(
         runs.push(result);
       }
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown Telegram update failure";
-      console.error("Telegram update skipped after failure", { message });
+      console.error("Telegram update terminalized as failed", { message: errorMessage(error) });
     }
   }
   return { nextOffset, runs };
