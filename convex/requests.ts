@@ -14,6 +14,10 @@ export const create = mutation({
     status: v.string(),
   },
   handler: async (ctx, args): Promise<void> => {
+    const run = await ctx.db.query("runs").withIndex("by_runId", (q) => q.eq("runId", args.runId)).unique();
+    if (run === null || run.status !== "running") {
+      throw new Error(`Cannot add a request to inactive run ${args.runId}`);
+    }
     await ctx.db.insert("requests", args);
   },
 });

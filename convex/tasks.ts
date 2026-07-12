@@ -1,5 +1,6 @@
 import { mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { assertTelemetry } from "./ingest";
 
 const specialist = v.union(v.literal("research"), v.literal("messaging"));
 const taskStatus = v.union(v.literal("pending"), v.literal("running"), v.literal("success"), v.literal("failed"), v.literal("escalated"));
@@ -19,6 +20,13 @@ export const create = mutation({
     latencyMs: v.number(),
   },
   handler: async (ctx, args): Promise<void> => {
+    assertTelemetry("attempts", args.attempts, true);
+    assertTelemetry("costUsd", args.costUsd);
+    assertTelemetry("latencyMs", args.latencyMs);
+    const run = await ctx.db.query("runs").withIndex("by_runId", (q) => q.eq("runId", args.runId)).unique();
+    if (run === null || run.status !== "running") {
+      throw new Error(`Cannot add a task to inactive run ${args.runId}`);
+    }
     await ctx.db.insert("tasks", args);
   },
 });

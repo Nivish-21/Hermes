@@ -45,7 +45,7 @@ export default defineSchema({
     verifyPass: v.optional(v.boolean()),
     parentId: v.optional(v.string()),
     ts: v.number(),
-  }).index("by_runId", ["runId"]),
+  }).index("by_runId", ["runId"]).index("by_nodeId", ["id"]),
 
   runs: defineTable({
     runId: v.string(),
@@ -65,6 +65,7 @@ export default defineSchema({
     promptTok: v.number(),
     complTok: v.number(),
     costUsd: v.number(),
+    frontierCostUsd: v.optional(v.number()),
     role: v.string(),
   }).index("by_runId", ["runId"]),
 });
