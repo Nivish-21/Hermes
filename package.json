@@ -7,6 +7,7 @@
     "typecheck": "tsc --noEmit",
     "env:check": "tsx scripts/env-check.ts",
     "seed": "tsx scripts/seed.ts",
+    "telegram:run": "tsx scripts/run-telegram.ts",
     "dashboard:dev": "vite --config dashboard/vite.config.ts",
     "dashboard:build": "vite build --config dashboard/vite.config.ts",
     "dashboard:deploy": "npm run dashboard:build && npx wrangler pages deploy dashboard/dist --project-name switchboard"

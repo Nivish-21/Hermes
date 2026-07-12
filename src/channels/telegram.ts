@@ -98,9 +98,14 @@ export async function pollTelegramUpdates(
     if (isRecord(update) && typeof update.update_id === "number") {
       nextOffset = update.update_id + 1;
     }
-    const result = await handleTelegramUpdate(update);
-    if (result !== null) {
-      runs.push(result);
+    try {
+      const result = await handleTelegramUpdate(update);
+      if (result !== null) {
+        runs.push(result);
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown Telegram update failure";
+      console.error("Telegram update skipped after failure", { message });
     }
   }
   return { nextOffset, runs };
