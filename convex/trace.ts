@@ -75,6 +75,24 @@ export const recordTrace = mutation({
     if (run.status !== "running") {
       throw new Error(`Run ${args.runId} is already complete`);
     }
+    const request = await ctx.db.query("requests").withIndex("by_runIdAndId", (q) => q.eq("runId", args.runId).eq("id", args.requestId)).unique();
+    if (request === null) {
+      throw new Error(`Unknown request ${args.requestId} for run ${args.runId}`);
+    }
+    const taskId = args.taskId;
+    if (taskId !== undefined) {
+      const task = await ctx.db.query("tasks").withIndex("by_runIdAndId", (q) => q.eq("runId", args.runId).eq("id", taskId)).unique();
+      if (task === null || task.requestId !== args.requestId) {
+        throw new Error(`Trace task ${taskId} does not belong to request ${args.requestId}`);
+      }
+    }
+    const parentId = args.parentId;
+    if (parentId !== undefined) {
+      const parent = await ctx.db.query("traceNodes").withIndex("by_nodeId", (q) => q.eq("id", parentId)).unique();
+      if (parent === null || parent.runId !== args.runId) {
+        throw new Error(`Trace parent ${parentId} does not belong to run ${args.runId}`);
+      }
+    }
     const duplicate = await ctx.db.query("traceNodes").withIndex("by_nodeId", (q) => q.eq("id", args.id)).unique();
     if (duplicate !== null) {
       throw new Error(`Trace node ${args.id} already exists`);
@@ -109,23 +127,30 @@ export const endRun = mutation({
       return;
     }
 
-    const nodes = await ctx.db.query("traceNodes").withIndex("by_runId", (q) => q.eq("runId", args.runId)).collect();
+    const [nodes, tasks] = await Promise.all([
+      ctx.db.query("traceNodes").withIndex("by_runId", (q) => q.eq("runId", args.runId)).collect(),
+      ctx.db.query("tasks").withIndex("by_runId", (q) => q.eq("runId", args.runId)).collect(),
+    ]);
+    const tasksById = new Map(tasks.map((task) => [task.id, task]));
     const latestVerifyByTask = new Map<string, (typeof nodes)[number]>();
     for (const node of nodes) {
-      if (node.kind !== "verify" || node.verifyPass === undefined) {
+      if (node.kind !== "verify" || node.verifyPass === undefined || node.taskId === undefined) {
         continue;
       }
-      const verificationKey = node.taskId ?? node.requestId;
+      const task = tasksById.get(node.taskId);
+      if (task === undefined || task.requestId !== node.requestId) {
+        continue;
+      }
+      const verificationKey = node.taskId;
       const previous = latestVerifyByTask.get(verificationKey);
       if (previous === undefined || node.ts >= previous.ts) {
         latestVerifyByTask.set(verificationKey, node);
       }
     }
 
-    const finalVerifications = Array.from(latestVerifyByTask.values());
-    const successCount = finalVerifications.filter((node) => node.verifyPass === true).length;
+    const successCount = tasks.filter((task) => latestVerifyByTask.get(task.id)?.verifyPass === true).length;
     const escalationCount = nodes.filter((node) => node.kind === "escalation").length;
-    const status = finalVerifications.length > 0 && successCount === finalVerifications.length ? "success" : "failed";
+    const status = tasks.length > 0 && successCount === tasks.length ? "success" : "failed";
     await ctx.db.patch(run._id, {
       endedAt: Date.now(),
       successCount,

@@ -5,27 +5,15 @@ import { useQuery } from "convex/react";
 type TraceNodeView = {
   id: string;
   runId: string;
-  requestId: string;
-  taskId?: string;
   kind: "manager" | "specialist" | "verify" | "escalation";
   model: string;
   promptTok: number;
   complTok: number;
   costUsd: number;
   latencyMs: number;
-  verifyPass?: boolean;
-  parentId?: string;
+  verifyPass: boolean | undefined;
+  parentId: string | undefined;
   ts: number;
-};
-
-type RunView = {
-  runId: string;
-  startedAt: number;
-  endedAt?: number;
-  successCount: number;
-  escalationCount: number;
-  totalCostUsd: number;
-  status: "running" | "success" | "failed";
 };
 
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 4 });
@@ -68,14 +56,14 @@ function TraceTree({ nodes }: { nodes: TraceNodeView[] }) {
 }
 
 function App() {
-  const runs = (useQuery(api.dashboard.listRuns) ?? []) as RunView[];
+  const runs = useQuery(api.dashboard.listRuns) ?? [];
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   useEffect(() => {
     if (selectedRunId === null && runs[0] !== undefined) setSelectedRunId(runs[0].runId);
   }, [runs, selectedRunId]);
   const selectedRun = runs.find((run) => run.runId === selectedRunId);
   const runData = useQuery(api.dashboard.getRunData, selectedRunId === null ? "skip" : { runId: selectedRunId });
-  const nodes = (runData?.nodes ?? []) as TraceNodeView[];
+  const nodes = runData?.nodes ?? [];
 
   return (
     <main>

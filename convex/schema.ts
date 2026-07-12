@@ -16,7 +16,7 @@ export default defineSchema({
     transcript: v.string(),
     ts: v.number(),
     status: v.string(),
-  }).index("by_runId", ["runId"]),
+  }).index("by_runId", ["runId"]).index("by_runIdAndId", ["runId", "id"]),
 
   tasks: defineTable({
     id: v.string(),
@@ -29,7 +29,7 @@ export default defineSchema({
     modelPath: v.array(v.string()),
     costUsd: v.number(),
     latencyMs: v.number(),
-  }).index("by_runId", ["runId"]),
+  }).index("by_runId", ["runId"]).index("by_runIdAndId", ["runId", "id"]),
 
   traceNodes: defineTable({
     id: v.string(),

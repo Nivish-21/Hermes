@@ -24,9 +24,15 @@ export const create = mutation({
     assertTelemetry("costUsd", args.costUsd);
     assertTelemetry("latencyMs", args.latencyMs);
     const run = await ctx.db.query("runs").withIndex("by_runId", (q) => q.eq("runId", args.runId)).unique();
-    if (run === null || run.status !== "running") {
-      throw new Error(`Cannot add a task to inactive run ${args.runId}`);
+    const request = await ctx.db.query("requests").withIndex("by_runIdAndId", (q) => q.eq("runId", args.runId).eq("id", args.requestId)).unique();
+    if (run === null || run.status !== "running" || request === null) {
+      throw new Error(`Cannot add a task to inactive run or unknown request ${args.runId}/${args.requestId}`);
     }
-    await ctx.db.insert("tasks", args);
+    const existing = await ctx.db.query("tasks").withIndex("by_runIdAndId", (q) => q.eq("runId", args.runId).eq("id", args.id)).unique();
+    if (existing === null) {
+      await ctx.db.insert("tasks", args);
+      return;
+    }
+    await ctx.db.patch(existing._id, args);
   },
 });
