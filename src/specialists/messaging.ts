@@ -89,6 +89,7 @@ export async function runMessagingTask(
   task: Task,
   requester: string,
   text: string,
+  parentId?: string,
 ): Promise<TaskResult> {
   if (task.template !== "messaging") {
     throw new Error("Messaging specialist received a non-messaging task");
@@ -123,5 +124,5 @@ export async function runMessagingTask(
       };
     },
     recover: async (): Promise<void> => undefined,
-  }, { task, requester });
+  }, { task, requester, ...(parentId === undefined ? {} : { parentId }) });
 }

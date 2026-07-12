@@ -9,6 +9,7 @@ export type ModelCallContext = {
   runId: string;
   requestId: string;
   taskId?: string;
+  parentId?: string;
   specialist?: SpecialistId;
 };
 
@@ -17,6 +18,10 @@ export type ModelResponse<T> = {
   promptTokens: number;
   completionTokens: number;
   costUsd: number;
+};
+
+export type TracedModelResponse<T> = ModelResponse<T> & {
+  traceId: string;
 };
 
 export type ModelExecutor<T> = (
@@ -62,7 +67,7 @@ function traceKind(role: ModelRole): TraceNode["kind"] {
   return role === "manager" ? "manager" : "specialist";
 }
 
-export async function callModel<T>(input: ModelCallInput<T>): Promise<ModelResponse<T>> {
+export async function callModel<T>(input: ModelCallInput<T>): Promise<TracedModelResponse<T>> {
   const model = pickModel(input.attempt, input.role);
   reserveBudget(input.context.runId, input.estimatedCostUsd);
   const startedAt = Date.now();
@@ -86,6 +91,9 @@ export async function callModel<T>(input: ModelCallInput<T>): Promise<ModelRespo
       ...(input.context.taskId === undefined
         ? {}
         : { taskId: input.context.taskId }),
+      ...(input.context.parentId === undefined
+        ? {}
+        : { parentId: input.context.parentId }),
       kind: traceKind(input.role),
       model,
       promptTok: response.promptTokens,
@@ -95,7 +103,7 @@ export async function callModel<T>(input: ModelCallInput<T>): Promise<ModelRespo
       ts: Date.now(),
     };
     await recordTrace(node);
-    return response;
+    return { ...response, traceId: node.id };
   } catch (error: unknown) {
     releaseBudget(input.context.runId, input.estimatedCostUsd);
     throw error;

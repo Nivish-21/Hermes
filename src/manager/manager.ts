@@ -21,6 +21,11 @@ type ManagerPlan = {
   instruction: string;
 };
 
+type RoutedPlan = {
+  plan: ManagerPlan;
+  traceId: string;
+};
+
 type ManagerReview = {
   accept: boolean;
   notes: string;
@@ -170,7 +175,7 @@ async function saveResearchEvidence(task: Task, brief: ResearchBrief): Promise<v
   });
 }
 
-async function routeRequest(request: Request): Promise<ManagerPlan> {
+async function routeRequest(request: Request): Promise<RoutedPlan> {
   const prompt = [
     "You are Switchboard's manager. Route this Telegram request to exactly one specialist.",
     "Return JSON only: {\"specialist\":\"research\"|\"messaging\",\"instruction\":\"...\"}.",
@@ -184,10 +189,15 @@ async function routeRequest(request: Request): Promise<ManagerPlan> {
     estimatedCostUsd: estimatedModelCost(),
     execute: (modelId) => completeWithOpenAi(modelId, prompt),
   });
-  return parsePlan(completion.value);
+  return { plan: parsePlan(completion.value), traceId: completion.traceId };
 }
 
-async function reviewResult(request: Request, task: Task, result: TaskResult): Promise<ManagerReview> {
+async function reviewResult(
+  request: Request,
+  task: Task,
+  result: TaskResult,
+  parentId: string,
+): Promise<ManagerReview> {
   const prompt = [
     "You are Switchboard's manager reviewing a specialist result.",
     "Return JSON only: {\"accept\":true|false,\"notes\":\"...\"}.",
@@ -199,7 +209,7 @@ async function reviewResult(request: Request, task: Task, result: TaskResult): P
   const completion = await callModel({
     role: "manager",
     attempt: 1,
-    context: { runId: request.runId, requestId: request.id, taskId: task.id },
+    context: { runId: request.runId, requestId: request.id, taskId: task.id, parentId },
     estimatedCostUsd: estimatedModelCost(),
     execute: (modelId) => completeWithOpenAi(modelId, prompt),
   });
@@ -212,12 +222,22 @@ function hasAttemptedResearchReply(evidence: unknown): boolean {
   );
 }
 
-async function executeTask(request: Request, task: Task): Promise<TaskResult> {
+async function executeTask(
+  request: Request,
+  task: Task,
+  parentId: string,
+): Promise<TaskResult> {
   const instruction = typeof task.params.instruction === "string" ? task.params.instruction : request.transcript;
   if (task.template === "research") {
-    return runResearchTask(task, request.requester, instruction, async ({ brief }) => saveResearchEvidence(task, brief));
+    return runResearchTask(
+      task,
+      request.requester,
+      instruction,
+      async ({ brief }) => saveResearchEvidence(task, brief),
+      parentId,
+    );
   }
-  return runMessagingTask(task, request.requester, instruction);
+  return runMessagingTask(task, request.requester, instruction, parentId);
 }
 
 export async function manageRequest(incoming: IncomingRequest): Promise<ManagedRunResult> {
@@ -233,23 +253,26 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
 
   try {
     await persistRequest(request);
-    const plan = await routeRequest(request);
+    const routed = await routeRequest(request);
     const task: Task = {
       id: randomUUID(),
       runId,
       requestId: request.id,
-      template: plan.specialist,
-      params: { instruction: plan.instruction },
+      template: routed.plan.specialist,
+      params: { instruction: routed.plan.instruction },
     };
     await createTask(task);
-    let result = await executeTask(request, task);
+    let result = await executeTask(request, task, routed.traceId);
     await updateTask(task, result);
-    const review = await reviewResult(request, task, result);
+    const review = await reviewResult(request, task, result, routed.traceId);
     // Research can be revised only before a Telegram reply attempt;
     // no specialist is replayed after an irreversible external side effect.
     if (!review.accept && task.template === "research" && !hasAttemptedResearchReply(result.evidence)) {
-      const retryTask: Task = { ...task, params: { instruction: `${plan.instruction}\nRevision notes: ${review.notes}` } };
-      result = await executeTask(request, retryTask);
+      const retryTask: Task = {
+        ...task,
+        params: { instruction: `${routed.plan.instruction}\nRevision notes: ${review.notes}` },
+      };
+      result = await executeTask(request, retryTask, routed.traceId);
       await updateTask(retryTask, result);
     }
     return { request, result };

@@ -135,6 +135,7 @@ export async function runResearchTask(
   requester: string,
   query: string,
   saveBrief: SaveResearchBrief,
+  parentId?: string,
 ): Promise<TaskResult> {
   if (task.template !== "research") {
     throw new Error("Research specialist received a non-research task");
@@ -201,5 +202,5 @@ export async function runResearchTask(
       };
     },
     recover: async (): Promise<void> => undefined,
-  }, { task, requester });
+  }, { task, requester, ...(parentId === undefined ? {} : { parentId }) });
 }

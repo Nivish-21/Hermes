@@ -12,6 +12,7 @@ export type Verification<TEvidence> = {
 export type OavrContext = {
   task: Task;
   requester: string;
+  parentId?: string;
 };
 
 export type OavrTask<TState, TAction, TEvidence> = {
@@ -28,6 +29,7 @@ function traceNode(
   kind: TraceNode["kind"],
   model: string,
   verifyPass?: boolean,
+  parentId?: string,
 ): TraceNode {
   return {
     id: randomUUID(),
@@ -41,6 +43,7 @@ function traceNode(
     costUsd: 0,
     latencyMs: 0,
     ...(verifyPass === undefined ? {} : { verifyPass }),
+    ...(parentId === undefined ? {} : { parentId }),
     ts: Date.now(),
   };
 }
@@ -57,15 +60,29 @@ export async function runOavr<TState, TAction, TEvidence>(
     const model = pickModel(attempt);
     modelPath.push(model);
 
+    const specialistNode = traceNode(
+      context.task,
+      "specialist",
+      model,
+      undefined,
+      context.parentId,
+    );
+    await recordTrace(specialistNode);
+
     try {
       const state = await definition.observe(context);
       const action = await definition.act(state, model, context);
-      await recordTrace(traceNode(context.task, "specialist", model));
 
       const verification = await definition.verify(action, context);
       lastEvidence = verification.evidence;
       await recordTrace(
-        traceNode(context.task, "verify", model, verification.ok),
+        traceNode(
+          context.task,
+          "verify",
+          model,
+          verification.ok,
+          specialistNode.id,
+        ),
       );
 
       if (verification.ok) {
@@ -88,13 +105,17 @@ export async function runOavr<TState, TAction, TEvidence>(
     } catch (error: unknown) {
       const reason = error instanceof Error ? error.message : "Unknown OAVR failure";
       lastEvidence = { reason };
-      await recordTrace(traceNode(context.task, "verify", model, false));
+      await recordTrace(
+        traceNode(context.task, "verify", model, false, specialistNode.id),
+      );
       await definition.recover(reason, context);
     }
   }
 
   const escalationModel = pickModel(2);
-  await recordTrace(traceNode(context.task, "escalation", escalationModel, false));
+  await recordTrace(
+    traceNode(context.task, "escalation", escalationModel, false, context.parentId),
+  );
   return {
     taskId: context.task.id,
     runId: context.task.runId,
