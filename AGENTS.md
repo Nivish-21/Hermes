@@ -11,16 +11,17 @@
 5. Use the commit subject/body for short handoff notes; do not use a shared mutable coordination file that creates merge conflicts.
 6. If another owner’s code is required, pull their latest push first. Do not edit their directory to unblock yourself.
 
-## Ownership
+## Technical ownership
 
-- Builder B: `convex/`, `src/trace/`, `src/lib/`, `dashboard/`, `scripts/`
-- Builder A: `src/manager/`, `src/specialists/`, `src/router/`, `src/channels/`, `.hermes.md`
+- Nivish is the sole technical owner for the remainder of the project and may change any source file required to finish, test, or deploy Switchboard.
+- The collaborator owns marketing, demo narrative, and presentation work only. Do not grant the collaborator runtime credentials or ask them to change application code.
+- The coding agent works directly for the technical owner and keeps changes small, tested, committed, rebased, and pushed.
 
 ## Stable integration contract
 
 - Every request, task, result, and trace node carries `runId`.
-- Builder A imports frozen types from `src/lib/types.ts`.
-- Builder A calls only `startRun()`, `recordTrace(node)`, and `endRun(runId)` from `src/trace/tracer.ts`.
+- Runtime orchestration imports frozen types from `src/lib/types.ts`.
+- Runtime orchestration calls only `startRun()`, `recordTrace(node)`, and `endRun(runId)` from `src/trace/tracer.ts`.
 - Never hardcode a model ID; use `MANAGER_MODEL_ID` and `CHEAP_MODEL_ID` from the environment.
 - Dashboard data is a sanitized public demo projection; do not add requester, transcript, request ID, task ID, params, secret, or credential fields to its queries.
 
@@ -31,6 +32,15 @@
 - Each local clone needs an ignored `.env` populated securely from `.env.example`.
 - `TRACE_INGEST_KEY` must match the Convex deployment environment for tracing to work.
 - Run `npx convex dev --once --typecheck enable` after Convex schema/function changes; it regenerates ignored `convex/_generated/` bindings.
+
+## Shared vault protocol
+
+- Use a password-manager vault named `Switchboard Hackathon`; 1Password is recommended for the fastest setup, though Bitwarden is acceptable.
+- Grant access only to Nivish's technical devices. The marketing collaborator does not need runtime credentials.
+- Store one secure item per provider: OpenAI, Convex trace ingestion, Telegram, Linkup, and Cloudflare.
+- Copy vault values into each device's ignored repo-root `.env`, then run `npm run env:check` locally.
+- A secret is never pasted into GitHub, a commit, an issue, a pull request, a build log, `AGENTS.md`, or agent chat.
+- Rotate a credential immediately if it is pasted outside the vault or local ignored `.env`.
 
 ## Required checks before a push
 
