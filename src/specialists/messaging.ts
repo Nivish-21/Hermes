@@ -97,9 +97,22 @@ export async function runMessagingTask(
     throw new Error("A message cannot be empty");
   }
 
+  let deliveryAttempted = false;
+  let deliveredMessage: TelegramMessage | undefined;
+
   return runOavr({
     observe: async (): Promise<string> => observeAllowlistedChannel(),
-    act: async (): Promise<TelegramMessage> => postOnlyToAllowlistedChannel(text),
+    act: async (): Promise<TelegramMessage> => {
+      if (deliveredMessage !== undefined) {
+        return deliveredMessage;
+      }
+      if (deliveryAttempted) {
+        throw new Error("Telegram delivery outcome is unknown; refusing to post a duplicate message");
+      }
+      deliveryAttempted = true;
+      deliveredMessage = await postOnlyToAllowlistedChannel(text);
+      return deliveredMessage;
+    },
     verify: async (message): Promise<{ ok: boolean; evidence: MessagingEvidence; reason?: string }> => {
       const channelId = await observeAllowlistedChannel();
       const acceptedByTelegram = message.message_id > 0 && String(message.chat.id) === channelId;

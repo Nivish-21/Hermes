@@ -16,6 +16,7 @@ export type ResearchBrief = {
 export type ResearchEvidence = {
   brief: ResearchBrief;
   savedToConvex: boolean;
+  replyAttempted: boolean;
   deliveredToTelegram: boolean;
   telegramMessageId: number;
   citationsResolvable: boolean;
@@ -142,23 +143,49 @@ export async function runResearchTask(
     throw new Error("A research query cannot be empty");
   }
 
+  let replyAttempted = false;
+  let completedAction: ResearchEvidence | undefined;
+
   return runOavr({
     observe: async (): Promise<{ query: string }> => ({ query }),
     act: async (state): Promise<ResearchEvidence> => {
+      if (completedAction !== undefined) {
+        return completedAction;
+      }
+      if (replyAttempted) {
+        throw new Error("Research reply outcome is unknown; refusing to send a duplicate reply");
+      }
+
       const results = await searchLinkup(state.query);
       if (results.length === 0) {
         throw new Error("Linkup returned no usable results");
       }
       const brief = buildBrief(state.query, results);
       await saveBrief({ task, brief });
-      const telegramMessageId = await sendResearchReply(requester, brief);
-      return {
-        brief,
-        savedToConvex: true,
-        deliveredToTelegram: true,
-        telegramMessageId,
-        citationsResolvable: false,
-      };
+      replyAttempted = true;
+      try {
+        const telegramMessageId = await sendResearchReply(requester, brief);
+        completedAction = {
+          brief,
+          savedToConvex: true,
+          replyAttempted: true,
+          deliveredToTelegram: true,
+          telegramMessageId,
+          citationsResolvable: false,
+        };
+      } catch {
+        // Telegram may have accepted a post before a network failure reached us.
+        // Preserve the attempt so OAVR and the Manager never replay this reply.
+        completedAction = {
+          brief,
+          savedToConvex: true,
+          replyAttempted: true,
+          deliveredToTelegram: false,
+          telegramMessageId: 0,
+          citationsResolvable: false,
+        };
+      }
+      return completedAction;
     },
     verify: async (evidence): Promise<{ ok: boolean; evidence: ResearchEvidence; reason?: string }> => {
       const citationChecks = await Promise.all(

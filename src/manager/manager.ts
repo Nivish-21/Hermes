@@ -196,6 +196,12 @@ async function reviewResult(request: Request, task: Task, result: TaskResult): P
   return parseReview(completion.value);
 }
 
+function hasAttemptedResearchReply(evidence: unknown): boolean {
+  return isRecord(evidence) && (
+    evidence.replyAttempted === true || evidence.deliveredToTelegram === true
+  );
+}
+
 async function executeTask(request: Request, task: Task): Promise<TaskResult> {
   const instruction = typeof task.params.instruction === "string" ? task.params.instruction : request.transcript;
   if (task.template === "research") {
@@ -229,7 +235,9 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
     };
     let result = await executeTask(request, task);
     const review = await reviewResult(request, task, result);
-    if (!review.accept) {
+    // Research can be revised only before a Telegram reply attempt;
+    // no specialist is replayed after an irreversible external side effect.
+    if (!review.accept && task.template === "research" && !hasAttemptedResearchReply(result.evidence)) {
       const retryTask: Task = { ...task, params: { instruction: `${plan.instruction}\nRevision notes: ${review.notes}` } };
       result = await executeTask(request, retryTask);
     }
