@@ -58,9 +58,10 @@ Everything below is the actual current state of this repo, verified by reading t
 
 ## P0 — fix before building anything new
 
-1. **`MANAGER_MODEL_ID` and `CHEAP_MODEL_ID` are both set to `gpt-5.6-sol` in `.env`.** This string is unverified against the OpenAI API this session. Until confirmed, every Manager/specialist call may fail outright (`OpenAI completion failed with HTTP …` in `manager.ts`). Action: hit `https://api.openai.com/v1/chat/completions` with that exact model string once, directly, before writing more code. If it fails, replace both env vars with the real model ID from the OpenAI dashboard.
-2. **`CHEAP_MODEL_ID` currently equals `MANAGER_MODEL_ID`.** There is no cost-tier difference yet — the entire cheap-first/frontier-escalate cost story is currently $0 savings in practice. Set `CHEAP_MODEL_ID` to an actually cheaper OpenAI chat-completions model once #1 is resolved.
-3. **`pickModel()` in `src/router/modelRouter.ts` escalates to the manager model on `attempt > 1`** — i.e. only the first of 3 OAVR attempts runs on the cheap tier; attempts 2 and 3 both run frontier. This is fewer cheap attempts than the original design intent (2 cheap attempts before escalating). Either change the condition to `attempt > 2`, or update anything user-facing (demo script, cost claims) to match what's actually running. Don't let the two disagree.
+1. ~~`MANAGER_MODEL_ID` unverified~~ **RESOLVED.** `gpt-5.6-sol` was confirmed live and callable with a captured API response (`{"ok":true}`, 17 prompt / 8 completion tokens). The model rejects `temperature: 0`; `completeWithOpenAi()` now uses its supported default. **Still open:** capture a real internal `routeRequest` or `reviewResult` call after the remaining runtime configuration is present.
+2. **`CHEAP_MODEL_ID` still equals `MANAGER_MODEL_ID`.** Still open. Set `CHEAP_MODEL_ID` to a genuinely cheaper, distinct model with verified pricing.
+3. ~~`pickModel()` escalation threshold~~ **RESOLVED.** Specialist attempts 1 and 2 use `CHEAP_MODEL_ID`; attempt 3 and the exhaustion trace use `MANAGER_MODEL_ID`. Focused routing assertions, typecheck, dashboard build, and independent review pass.
+4. **Still open:** `TRACE_INGEST_KEY` is not yet set, and no numeric model-call cost estimate has been captured from a real internal Manager run.
 
 ## 1. Workflow (as implemented)
 
