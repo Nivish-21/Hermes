@@ -15,7 +15,7 @@ const {
   registerTelegramCommands,
 } = await import("../src/channels/telegram.js");
 
-type DirectCall = { template: "research" | "messaging"; instruction: string };
+type DirectCall = { template: "research" | "booking" | "messaging"; instruction: string };
 type Completion = { updateId: number; status: "succeeded" | "failed"; runId?: string; error?: string };
 
 function update(text: string, senderId = 42): unknown {
@@ -117,7 +117,8 @@ test("registers the complete BotFather command surface with honest descriptions"
     BOT_COMMANDS.map(({ command }) => command),
     ["start", "help", "ask", "research", "message", "status", "cost", "dashboard", "book", "publish"],
   );
-  assert.match(BOT_COMMANDS.find(({ command }) => command === "book")?.description ?? "", /not live yet/i);
+  assert.match(BOT_COMMANDS.find(({ command }) => command === "book")?.description ?? "", /book.*next available|book.*ISO/i);
+  assert.doesNotMatch(BOT_COMMANDS.find(({ command }) => command === "book")?.description ?? "", /not live yet/i);
   assert.match(BOT_COMMANDS.find(({ command }) => command === "publish")?.description ?? "", /not live yet/i);
 });
 
@@ -205,6 +206,38 @@ test("/research and /message take deterministic direct specialist paths", async 
   assert.match(message.replies[0] ?? "", /Message task finished with status: success/);
 });
 
+test("bare /book deterministically requests the next available slot without the Manager", async () => {
+  const state = harness();
+  await state.handle(update("/book"));
+  assert.deepEqual(state.directCalls, [{
+    template: "booking",
+    instruction: JSON.stringify({ mode: "next_available" }),
+  }]);
+  assert.equal(state.managerTranscripts.length, 0);
+  assert.match(state.replies[0] ?? "", /Booking task finished with status: success/);
+});
+
+test("/book with a timezone-explicit ISO time deterministically requests that instant", async () => {
+  const state = harness();
+  await state.handle(update("/book 2030-01-02T09:30:00-05:00"));
+  assert.deepEqual(state.directCalls, [{
+    template: "booking",
+    instruction: JSON.stringify({ mode: "requested_time", requestedStart: "2030-01-02T14:30:00.000Z" }),
+  }]);
+  assert.equal(state.managerTranscripts.length, 0);
+});
+
+test("/book rejects invalid arguments with usage and never acts", async () => {
+  for (const argument of ["tomorrow morning", "2030-01-02T09:30:00", "2030-02-30T09:30:00Z"]) {
+    const state = harness();
+    await state.handle(update(`/book ${argument}`));
+    assert.equal(state.managerTranscripts.length, 0);
+    assert.equal(state.directCalls.length, 0);
+    assert.match(state.replies[0] ?? "", /^Usage: \/book/);
+    assert.deepEqual(state.completions, [{ updateId: 10, status: "succeeded" }]);
+  }
+});
+
 test("/dashboard reports unavailable until an explicit deployment is configured", async () => {
   const unavailable = harness();
   await unavailable.handle(update("/dashboard"));
@@ -216,14 +249,12 @@ test("/dashboard reports unavailable until an explicit deployment is configured"
   assert.equal(configured.replies[0], "Live Switchboard dashboard: https://dashboard.example.com");
 });
 
-test("/book and /publish remain honest pending fast paths", async () => {
-  for (const command of ["book", "publish"]) {
-    const state = harness();
-    await state.handle(update(`/${command}`));
-    assert.equal(state.managerTranscripts.length, 0);
-    assert.equal(state.directCalls.length, 0);
-    assert.match(state.replies[0] ?? "", new RegExp(`/${command} is not live yet`, "i"));
-  }
+test("/publish remains an honest pending fast path", async () => {
+  const state = harness();
+  await state.handle(update("/publish"));
+  assert.equal(state.managerTranscripts.length, 0);
+  assert.equal(state.directCalls.length, 0);
+  assert.match(state.replies[0] ?? "", /\/publish is not live yet/i);
 });
 
 test("allowlist, durable claim, completion, and private reply gates are enforced", async () => {

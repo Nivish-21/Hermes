@@ -6,6 +6,7 @@ import type { Request, SpecialistId, Task, TaskResult } from "../lib/types.js";
 import type { IncomingRequest, ManagedRunResult } from "../manager/manager.js";
 import { manageRequest } from "../manager/manager.js";
 import { clearRunBudget } from "../router/budget.js";
+import { normalizeBookingInstruction, runBookingTask } from "../specialists/booking.js";
 import { runMessagingTask } from "../specialists/messaging.js";
 import { runResearchTask, type ResearchBrief } from "../specialists/research.js";
 import { endRun, startRun } from "../trace/tracer.js";
@@ -48,7 +49,7 @@ export type TelegramHandlerDependencies = {
   manageRequest: (request: IncomingRequest) => Promise<ManagedRunResult>;
   runDirectTask: (
     update: TelegramTextUpdate,
-    template: Extract<SpecialistId, "research" | "messaging">,
+    template: Extract<SpecialistId, "research" | "booking" | "messaging">,
     instruction: string,
   ) => Promise<ManagedRunResult>;
   latestRequesterActivity: (requester: string) => Promise<RequesterActivity | null>;
@@ -63,7 +64,7 @@ export const BOT_COMMANDS: ReadonlyArray<{ command: SupportedCommand; descriptio
   { command: "status", description: "Show your most recent request status" },
   { command: "cost", description: "Show your latest routed and frontier cost" },
   { command: "dashboard", description: "Show public trace dashboard availability" },
-  { command: "book", description: "Booking command — not live yet" },
+  { command: "book", description: "Book next available or a timezone-explicit ISO time" },
   { command: "publish", description: "Publishing command — not live yet" },
 ];
 
@@ -76,7 +77,7 @@ const HELP_TEXT = [
   "/status — show your latest request status",
   "/cost — show your latest routed and frontier-estimate cost",
   "/dashboard — show the trace dashboard when a live deployment is configured",
-  "/book — not live yet",
+  "/book [timezone-explicit ISO-8601] — book next available or a requested time",
   "/publish — not live yet",
 ].join("\n");
 
@@ -138,6 +139,29 @@ function convexClient(): ConvexHttpClient {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown Telegram update failure";
+}
+
+function bookingInstruction(argument: string): string | null {
+  if (argument === "") {
+    return normalizeBookingInstruction(JSON.stringify({ mode: "next_available" }));
+  }
+  const date = /^(\d{4})-(\d{2})-(\d{2})T/.exec(argument);
+  if (date === null) {
+    return null;
+  }
+  const year = Number(date[1]);
+  const month = Number(date[2]);
+  const day = Number(date[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
+  if (daysInMonth === undefined || day < 1 || day > daysInMonth) {
+    return null;
+  }
+  try {
+    return normalizeBookingInstruction(JSON.stringify({ mode: "requested_time", requestedStart: argument }));
+  } catch {
+    return null;
+  }
 }
 
 async function telegramCall(method: string, payload: Record<string, unknown>): Promise<unknown> {
@@ -232,7 +256,7 @@ async function saveDirectResearchBrief(task: Task, brief: ResearchBrief): Promis
 
 async function runDirectTask(
   update: TelegramTextUpdate,
-  template: Extract<SpecialistId, "research" | "messaging">,
+  template: Extract<SpecialistId, "research" | "booking" | "messaging">,
   instruction: string,
 ): Promise<ManagedRunResult> {
   const runId = await startRun();
@@ -256,7 +280,9 @@ async function runDirectTask(
     await persistDirectRequest(request, task);
     const result = template === "research"
       ? await runResearchTask(task, request.requester, instruction, async ({ brief }) => saveDirectResearchBrief(task, brief))
-      : await runMessagingTask(task, request.requester, instruction);
+      : template === "booking"
+        ? await runBookingTask(task, request.requester, instruction)
+        : await runMessagingTask(task, request.requester, instruction);
     await updateDirectTask(task, result);
     return { request, result };
   } finally {
@@ -309,9 +335,19 @@ async function handleCommand(
     await dependencies.sendPrivateReply(update.senderId, reply);
     return null;
   }
-  if (parsed.command === "book" || parsed.command === "publish") {
+  if (parsed.command === "publish") {
     await dependencies.sendPrivateReply(update.senderId, `/${parsed.command} is not live yet. Use /help for available commands.`);
     return null;
+  }
+  if (parsed.command === "book") {
+    const instruction = bookingInstruction(parsed.argument);
+    if (instruction === null) {
+      await dependencies.sendPrivateReply(update.senderId, "Usage: /book [timezone-explicit ISO-8601]");
+      return null;
+    }
+    const result = await dependencies.runDirectTask(update, "booking", instruction);
+    await dependencies.sendPrivateReply(update.senderId, `Booking task finished with status: ${result.result.status}.`);
+    return result;
   }
   if (parsed.command === "status" || parsed.command === "cost") {
     const latest = await dependencies.latestRequesterActivity(update.senderId);
