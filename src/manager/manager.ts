@@ -7,6 +7,7 @@ import { callModel, type ModelResponse } from "../router/modelRouter.js";
 import { clearRunBudget } from "../router/budget.js";
 import { normalizeBookingInstruction, runBookingTask } from "../specialists/booking.js";
 import { runMessagingTask } from "../specialists/messaging.js";
+import { normalizePublishInstruction, runPublishTask } from "../specialists/publish.js";
 import { runResearchTask, type ResearchBrief } from "../specialists/research.js";
 import { endRun, recordTrace, startRun } from "../trace/tracer.js";
 
@@ -191,9 +192,10 @@ async function routeRequest(request: Request): Promise<RoutedPlan> {
   const currentTime = new Date().toISOString();
   const prompt = [
     "You are Switchboard's manager. Route this Telegram request to exactly one specialist.",
-    "Return JSON only: {\"specialist\":\"research\"|\"messaging\"|\"booking\",\"instruction\":\"...\"}.",
-    "Use research for sourced web information, messaging for posts to the owned allowlisted channel, and booking for calendar scheduling requests.",
+    "Return JSON only: {\"specialist\":\"research\"|\"messaging\"|\"booking\"|\"publish\",\"instruction\":\"...\"}.",
+    "Use research for sourced web information, messaging for posts to the owned allowlisted channel, booking for calendar scheduling requests, and publish for replacing content on the owned Cloudflare live page.",
     "For booking only, instruction must itself be a JSON string with either {\"mode\":\"next_available\"} or {\"mode\":\"requested_time\",\"requestedStart\":\"ISO-8601 timestamp\"}. Include no names, email addresses, or free-form request text in that inner JSON.",
+    "For publish only, instruction must itself be a JSON string with exactly {\"content\":\"the complete content to publish\"}. Do not include a URL, credentials, or any other field; the target is fixed by trusted configuration.",
     `Booking time context: current UTC time is ${currentTime}; calendar timezone is ${bookingTimeZone}.`,
     `Request: ${request.transcript}`,
   ].join("\n");
@@ -271,6 +273,9 @@ async function executeTask(
   if (task.template === "booking") {
     return runBookingTask(task, request.requester, instruction, parentId);
   }
+  if (task.template === "publish") {
+    return runPublishTask(task, request.requester, instruction, parentId);
+  }
   return runMessagingTask(task, request.requester, instruction, parentId);
 }
 
@@ -290,7 +295,9 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
     const routed = await routeRequest(request);
     const instruction = routed.plan.specialist === "booking"
       ? normalizeBookingInstruction(routed.plan.instruction)
-      : routed.plan.instruction;
+      : routed.plan.specialist === "publish"
+        ? normalizePublishInstruction(routed.plan.instruction)
+        : routed.plan.instruction;
     const task: Task = {
       id: randomUUID(),
       runId,

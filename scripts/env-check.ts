@@ -2,7 +2,7 @@ import "dotenv/config";
 
 type EnvironmentRequirement = {
   name: string;
-  requiredFor: "core" | "research" | "messaging" | "booking" | "dashboard" | "deployment";
+  requiredFor: "core" | "research" | "messaging" | "booking" | "publish" | "dashboard" | "deployment";
   required: boolean;
 };
 
@@ -27,8 +27,11 @@ const requirements: EnvironmentRequirement[] = [
   { name: "DASHBOARD_URL", requiredFor: "dashboard", required: false },
   { name: "FRONTIER_INPUT_USD_PER_MILLION_TOKENS", requiredFor: "dashboard", required: false },
   { name: "FRONTIER_OUTPUT_USD_PER_MILLION_TOKENS", requiredFor: "dashboard", required: false },
-  { name: "CLOUDFLARE_API_TOKEN", requiredFor: "deployment", required: false },
-  { name: "CLOUDFLARE_ACCOUNT_ID", requiredFor: "deployment", required: false },
+  { name: "CLOUDFLARE_API_TOKEN", requiredFor: "publish", required: true },
+  { name: "CLOUDFLARE_ACCOUNT_ID", requiredFor: "publish", required: true },
+  { name: "CLOUDFLARE_KV_NAMESPACE_ID", requiredFor: "publish", required: true },
+  { name: "CLOUDFLARE_PUBLISH_KEY", requiredFor: "publish", required: true },
+  { name: "CLOUDFLARE_PUBLISH_LIVE_URL", requiredFor: "publish", required: true },
 ];
 
 function isConfigured(value: string | undefined): boolean {
@@ -62,6 +65,18 @@ if (isConfigured(process.env.CALCOM_EVENT_TYPE_ID) && !/^[1-9]\d*$/.test(process
 }
 if (isConfigured(process.env.CALCOM_ATTENDEE_EMAIL) && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(process.env.CALCOM_ATTENDEE_EMAIL ?? "")) {
   invalid.push("CALCOM_ATTENDEE_EMAIL must be an email address");
+}
+if (isConfigured(process.env.CLOUDFLARE_PUBLISH_KEY) && Buffer.byteLength(process.env.CLOUDFLARE_PUBLISH_KEY ?? "", "utf8") > 512) {
+  invalid.push("CLOUDFLARE_PUBLISH_KEY must not exceed 512 bytes");
+}
+if (isConfigured(process.env.CLOUDFLARE_PUBLISH_LIVE_URL)) {
+  try {
+    if (new URL(process.env.CLOUDFLARE_PUBLISH_LIVE_URL ?? "").protocol !== "https:") {
+      invalid.push("CLOUDFLARE_PUBLISH_LIVE_URL must use HTTPS");
+    }
+  } catch {
+    invalid.push("CLOUDFLARE_PUBLISH_LIVE_URL must be a valid URL");
+  }
 }
 
 if (missing.length > 0) {
