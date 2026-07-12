@@ -137,7 +137,10 @@ async function persistRequest(request: Request): Promise<void> {
 }
 
 async function createTask(task: Task): Promise<void> {
-  const instruction = typeof task.params.instruction === "string" ? task.params.instruction : "";
+  const instruction = task.params.instruction;
+  if (typeof instruction !== "string") {
+    throw new Error("Task instruction must be a string before persistence");
+  }
   await convexClient().mutation(api.tasks.create, {
     ...task,
     params: { instruction },
