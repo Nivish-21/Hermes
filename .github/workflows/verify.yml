@@ -32,6 +32,9 @@ jobs:
       - name: Strict TypeScript check
         run: npm run typecheck
 
+      - name: Regression tests
+        run: npm test
+
       - name: Verify Convex generated bindings
         run: npx convex codegen --dry-run --typecheck enable
 
