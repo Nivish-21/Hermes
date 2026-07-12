@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../convex/_generated/api";
 import { useQuery } from "convex/react";
+import { isDashboardLoading } from "./dashboard-state";
 import { buildTraceForest, type TraceBranchView, type TraceNodeView } from "./trace-tree";
 
 const money = new Intl.NumberFormat("en-US", {
@@ -60,7 +61,7 @@ function App() {
   const actualCost = runData?.actualCostUsd ?? selectedRun?.totalCostUsd ?? 0;
   const frontierCost = runData?.frontierOnlyEstimateUsd ?? 0;
   const savings = Math.max(0, frontierCost - actualCost);
-  const costLoading = selectedRun !== undefined && runData === undefined;
+  const dashboardLoading = isDashboardLoading(runsResult, selectedRun, runData);
 
   return (
     <main>
@@ -76,15 +77,15 @@ function App() {
       <section className="metric-grid" aria-label="Selected run summary">
         <article className="panel cost-panel">
           <span className="eyebrow">ACTUAL ROUTED COST</span>
-          <h2>{costLoading ? "…" : money.format(actualCost)}</h2>
+          <h2>{dashboardLoading ? "…" : money.format(actualCost)}</h2>
           <p>Recorded model spend for this run</p>
           <div className="comparison">
             <span>Frontier-only estimate</span>
-            <strong>{costLoading ? "…" : money.format(frontierCost)}</strong>
+            <strong>{dashboardLoading ? "…" : money.format(frontierCost)}</strong>
           </div>
           <div className="comparison savings">
             <span>Estimated savings</span>
-            <strong>{costLoading ? "…" : money.format(savings)}</strong>
+            <strong>{dashboardLoading ? "…" : money.format(savings)}</strong>
           </div>
         </article>
         <article className="panel">
@@ -95,7 +96,7 @@ function App() {
         </article>
         <article className="panel">
           <span className="eyebrow">TRACE NODES</span>
-          <h2>{runData === undefined && selectedRun !== undefined ? "…" : nodes.length}</h2>
+          <h2>{dashboardLoading ? "…" : nodes.length}</h2>
           <p>Manager → specialist → verify</p>
         </article>
       </section>
@@ -135,9 +136,9 @@ function App() {
         <article className="panel trace-panel">
           <div className="section-heading">
             <div><span className="eyebrow">LIVE TRACE TREE</span><h2>Decision trail</h2></div>
-            <span className="badge">{nodes.length} nodes</span>
+            <span className="badge">{dashboardLoading ? "…" : nodes.length} nodes</span>
           </div>
-          <TraceTree nodes={nodes} loading={selectedRun !== undefined && runData === undefined} />
+          <TraceTree nodes={nodes} loading={dashboardLoading} />
         </article>
       </section>
     </main>
