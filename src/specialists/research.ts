@@ -19,6 +19,7 @@ export type ResearchEvidence = {
   replyAttempted: boolean;
   deliveredToTelegram: boolean;
   telegramMessageId: number;
+  telegramMessageCount: number;
   citationsResolvable: boolean;
 };
 
@@ -88,12 +89,32 @@ function buildBrief(query: string, results: LinkupResult[]): ResearchBrief {
   return { query, summary, citations };
 }
 
+const MAX_TELEGRAM_MESSAGE_LENGTH = 4_000;
+
 function allowedRequesters(): Set<string> {
   const raw = process.env.TELEGRAM_ALLOWED_USERS ?? "";
   return new Set(raw.split(",").map((value) => value.trim()).filter((value) => value !== ""));
 }
 
-async function sendResearchReply(requester: string, brief: ResearchBrief): Promise<number> {
+function splitTelegramText(text: string): string[] {
+  const chunks: string[] = [];
+  let remaining = text;
+  while (remaining.length > MAX_TELEGRAM_MESSAGE_LENGTH) {
+    const preferredBreak = Math.max(
+      remaining.lastIndexOf("\n", MAX_TELEGRAM_MESSAGE_LENGTH),
+      remaining.lastIndexOf(" ", MAX_TELEGRAM_MESSAGE_LENGTH),
+    );
+    const splitAt = preferredBreak > 0 ? preferredBreak + 1 : MAX_TELEGRAM_MESSAGE_LENGTH;
+    chunks.push(remaining.slice(0, splitAt).trimEnd());
+    remaining = remaining.slice(splitAt).trimStart();
+  }
+  if (remaining.length > 0) {
+    chunks.push(remaining);
+  }
+  return chunks;
+}
+
+async function sendResearchReply(requester: string, brief: ResearchBrief): Promise<number[]> {
   if (!allowedRequesters().has(requester)) {
     throw new Error("Research replies are allowed only to configured Telegram users");
   }
@@ -102,19 +123,23 @@ async function sendResearchReply(requester: string, brief: ResearchBrief): Promi
     .map((citation, index) => `${index + 1}. ${citation.title}\n${citation.url}`)
     .join("\n\n");
   const text = `Research brief: ${brief.query}\n\n${brief.summary}\n\nSources:\n${citationText}`;
-  const response = await fetch(
-    `https://api.telegram.org/bot${requiredEnv("TELEGRAM_BOT_TOKEN")}/sendMessage`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ chat_id: requester, text, disable_web_page_preview: true }),
-    },
-  );
-  const payload = await response.json() as unknown;
-  if (!isRecord(payload) || payload.ok !== true || !isRecord(payload.result) || typeof payload.result.message_id !== "number") {
-    throw new Error("Telegram did not confirm the research reply");
+  const messageIds: number[] = [];
+  for (const chunk of splitTelegramText(text)) {
+    const response = await fetch(
+      `https://api.telegram.org/bot${requiredEnv("TELEGRAM_BOT_TOKEN")}/sendMessage`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chat_id: requester, text: chunk, disable_web_page_preview: true }),
+      },
+    );
+    const payload = await response.json() as unknown;
+    if (!isRecord(payload) || payload.ok !== true || !isRecord(payload.result) || typeof payload.result.message_id !== "number") {
+      throw new Error("Telegram did not confirm the research reply");
+    }
+    messageIds.push(payload.result.message_id);
   }
-  return payload.result.message_id;
+  return messageIds;
 }
 
 async function isResolvableCitation(url: string): Promise<boolean> {
@@ -165,13 +190,14 @@ export async function runResearchTask(
       await saveBrief({ task, brief });
       replyAttempted = true;
       try {
-        const telegramMessageId = await sendResearchReply(requester, brief);
+        const telegramMessageIds = await sendResearchReply(requester, brief);
         completedAction = {
           brief,
           savedToConvex: true,
           replyAttempted: true,
           deliveredToTelegram: true,
-          telegramMessageId,
+          telegramMessageId: telegramMessageIds[0] ?? 0,
+          telegramMessageCount: telegramMessageIds.length,
           citationsResolvable: false,
         };
       } catch {
@@ -183,6 +209,7 @@ export async function runResearchTask(
           replyAttempted: true,
           deliveredToTelegram: false,
           telegramMessageId: 0,
+          telegramMessageCount: 0,
           citationsResolvable: false,
         };
       }

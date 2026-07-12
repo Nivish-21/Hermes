@@ -48,6 +48,32 @@ function traceNode(
   };
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown OAVR failure";
+}
+
+async function traceSafely(node: TraceNode): Promise<string | undefined> {
+  try {
+    await recordTrace(node);
+    return undefined;
+  } catch (error: unknown) {
+    return `Trace write failed: ${errorMessage(error)}`;
+  }
+}
+
+async function recoverSafely<TState, TAction, TEvidence>(
+  definition: OavrTask<TState, TAction, TEvidence>,
+  reason: string,
+  context: OavrContext,
+): Promise<string | undefined> {
+  try {
+    await definition.recover(reason, context);
+    return undefined;
+  } catch (error: unknown) {
+    return `Recovery failed: ${errorMessage(error)}`;
+  }
+}
+
 export async function runOavr<TState, TAction, TEvidence>(
   definition: OavrTask<TState, TAction, TEvidence>,
   context: OavrContext,
@@ -67,15 +93,23 @@ export async function runOavr<TState, TAction, TEvidence>(
       undefined,
       context.parentId,
     );
-    await recordTrace(specialistNode);
+    const specialistTraceFailure = await traceSafely(specialistNode);
+    if (specialistTraceFailure !== undefined) {
+      lastEvidence = { reason: specialistTraceFailure };
+      const recoveryFailure = await recoverSafely(definition, specialistTraceFailure, context);
+      if (recoveryFailure !== undefined) {
+        lastEvidence = { reason: `${specialistTraceFailure}; ${recoveryFailure}` };
+      }
+      continue;
+    }
 
     try {
       const state = await definition.observe(context);
       const action = await definition.act(state, model, context);
-
       const verification = await definition.verify(action, context);
       lastEvidence = verification.evidence;
-      await recordTrace(
+
+      const verificationTraceFailure = await traceSafely(
         traceNode(
           context.task,
           "verify",
@@ -84,6 +118,14 @@ export async function runOavr<TState, TAction, TEvidence>(
           specialistNode.id,
         ),
       );
+      if (verificationTraceFailure !== undefined) {
+        lastEvidence = { reason: verificationTraceFailure };
+        const recoveryFailure = await recoverSafely(definition, verificationTraceFailure, context);
+        if (recoveryFailure !== undefined) {
+          lastEvidence = { reason: `${verificationTraceFailure}; ${recoveryFailure}` };
+        }
+        continue;
+      }
 
       if (verification.ok) {
         return {
@@ -98,24 +140,34 @@ export async function runOavr<TState, TAction, TEvidence>(
         };
       }
 
-      await definition.recover(
+      const recoveryFailure = await recoverSafely(
+        definition,
         verification.reason ?? "Verification failed",
         context,
       );
+      if (recoveryFailure !== undefined) {
+        lastEvidence = { reason: recoveryFailure };
+      }
     } catch (error: unknown) {
-      const reason = error instanceof Error ? error.message : "Unknown OAVR failure";
+      const reason = errorMessage(error);
       lastEvidence = { reason };
-      await recordTrace(
+      const failureTraceError = await traceSafely(
         traceNode(context.task, "verify", model, false, specialistNode.id),
       );
-      await definition.recover(reason, context);
+      const recoveryFailure = await recoverSafely(definition, reason, context);
+      if (failureTraceError !== undefined || recoveryFailure !== undefined) {
+        lastEvidence = { reason: [reason, failureTraceError, recoveryFailure].filter((part): part is string => part !== undefined).join("; ") };
+      }
     }
   }
 
   const escalationModel = pickModel(2);
-  await recordTrace(
+  const escalationTraceFailure = await traceSafely(
     traceNode(context.task, "escalation", escalationModel, false, context.parentId),
   );
+  if (escalationTraceFailure !== undefined) {
+    lastEvidence = { reason: escalationTraceFailure };
+  }
   return {
     taskId: context.task.id,
     runId: context.task.runId,
