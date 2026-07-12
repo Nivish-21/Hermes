@@ -14,6 +14,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      VITE_CONVEX_URL: https://festive-starfish-979.convex.cloud
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -29,6 +31,9 @@ jobs:
 
       - name: Strict TypeScript check
         run: npm run typecheck
+
+      - name: Verify Convex generated bindings
+        run: npx convex codegen --dry-run --typecheck enable
 
       - name: Production dashboard build
         run: npm run dashboard:build

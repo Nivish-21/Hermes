@@ -10,7 +10,8 @@
     "telegram:run": "tsx scripts/run-telegram.ts",
     "dashboard:dev": "vite --config dashboard/vite.config.ts",
     "dashboard:build": "vite build --config dashboard/vite.config.ts",
-    "dashboard:deploy": "npm run dashboard:build && npx wrangler pages deploy dashboard/dist --project-name switchboard"
+    "dashboard:deploy": "npm run dashboard:build && npx wrangler pages deploy dashboard/dist --project-name \"${CLOUDFLARE_PROJECT_NAME:?CLOUDFLARE_PROJECT_NAME is required}\"",
+    "convex:deploy": "npx convex deploy --typecheck enable"
   },
   "dependencies": {
     "convex": "^1.25.4",
