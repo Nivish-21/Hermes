@@ -6,6 +6,21 @@ const specialist = v.union(v.literal("research"), v.literal("messaging"));
 const taskStatus = v.union(v.literal("pending"), v.literal("running"), v.literal("success"), v.literal("failed"), v.literal("escalated"));
 const params = v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()));
 
+type TaskStatus = "pending" | "running" | "success" | "failed" | "escalated";
+
+function assertTaskTransition(current: TaskStatus, next: TaskStatus): void {
+  if (current === next) {
+    return;
+  }
+  if (current === "pending" && next === "running") {
+    return;
+  }
+  if (current === "running" && (next === "success" || next === "failed" || next === "escalated")) {
+    return;
+  }
+  throw new Error(`Invalid task status transition ${current} -> ${next}`);
+}
+
 export const create = mutation({
   args: {
     ingestKey: v.string(),
@@ -36,7 +51,10 @@ export const create = mutation({
       await ctx.db.insert("tasks", task);
       return;
     }
-    await ctx.db.patch(existing._id, task);
+    if (existing.requestId !== args.requestId || existing.template !== args.template || JSON.stringify(existing.params) !== JSON.stringify(args.params)) {
+      throw new Error(`Conflicting task replay ${args.runId}/${args.id}`);
+    }
+    return;
   },
 });
 
@@ -62,6 +80,7 @@ export const update = mutation({
     if (run === null || run.status !== "running" || task === null) {
       throw new Error(`Cannot update an unknown task in inactive run ${args.runId}/${args.id}`);
     }
+    assertTaskTransition(task.status, args.status);
     await ctx.db.patch(task._id, {
       status: args.status,
       attempts: args.attempts,

@@ -22,6 +22,8 @@ export type MessagingEvidence = {
   acceptedByTelegram: boolean;
 };
 
+const MAX_TELEGRAM_MESSAGE_LENGTH = 4_000;
+
 function requiredEnv(name: "TELEGRAM_BOT_TOKEN" | "ALLOWED_CHANNEL_ID"): string {
   const value = process.env[name]?.trim();
   if (value === undefined || value === "") {
@@ -109,6 +111,9 @@ export async function runMessagingTask(
       }
       if (deliveryAttempted) {
         throw new Error("Telegram delivery outcome is unknown; refusing to post a duplicate message");
+      }
+      if (text.length > MAX_TELEGRAM_MESSAGE_LENGTH) {
+        throw new Error("Message exceeds Telegram's safe delivery limit");
       }
       deliveryAttempted = true;
       deliveredMessage = await postOnlyToAllowlistedChannel(text);

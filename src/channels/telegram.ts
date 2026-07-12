@@ -8,6 +8,8 @@ type TelegramTextUpdate = {
   updateId: number;
   messageId: number;
   senderId: string;
+  chatId: string;
+  chatType: string;
   text: string;
   ts: number;
 };
@@ -25,7 +27,7 @@ function requiredEnv(name: "CONVEX_URL" | "TELEGRAM_BOT_TOKEN" | "TRACE_INGEST_K
 }
 
 function allowedUserIds(): Set<string> {
-  const raw = process.env.TELEGRAM_ALLOWED_USERS ?? process.env.ALLOWED_TELEGRAM_USER_ID ?? "";
+  const raw = process.env.TELEGRAM_ALLOWED_USERS ?? "";
   const ids = raw.split(",").map((id) => id.trim()).filter((id) => id !== "");
   if (ids.length === 0) {
     throw new Error("TELEGRAM_ALLOWED_USERS is required");
@@ -38,13 +40,15 @@ function parseTextUpdate(update: unknown): TelegramTextUpdate | null {
     return null;
   }
   const message = update.message;
-  if (typeof message.message_id !== "number" || typeof message.date !== "number" || typeof message.text !== "string" || !isRecord(message.from) || typeof message.from.id !== "number") {
+  if (typeof message.message_id !== "number" || typeof message.date !== "number" || typeof message.text !== "string" || !isRecord(message.from) || typeof message.from.id !== "number" || !isRecord(message.chat) || typeof message.chat.id !== "number" || typeof message.chat.type !== "string") {
     return null;
   }
   return {
     updateId: update.update_id,
     messageId: message.message_id,
     senderId: String(message.from.id),
+    chatId: String(message.chat.id),
+    chatType: message.chat.type,
     text: message.text,
     ts: message.date * 1_000,
   };
@@ -78,7 +82,7 @@ export async function handleTelegramUpdate(update: unknown): Promise<ManagedRunR
   if (textUpdate === null || textUpdate.text.trim() === "") {
     return null;
   }
-  if (!allowedUserIds().has(textUpdate.senderId)) {
+  if (!allowedUserIds().has(textUpdate.senderId) || textUpdate.chatType !== "private" || textUpdate.chatId !== textUpdate.senderId) {
     return null;
   }
 
@@ -93,22 +97,31 @@ export async function handleTelegramUpdate(update: unknown): Promise<ManagedRunR
     return null;
   }
 
+  let result: ManagedRunResult | undefined;
   try {
-    const result = await manageRequest({
+    result = await manageRequest({
       id: `telegram-${textUpdate.updateId}-${textUpdate.messageId}`,
       channel: "text",
       requester: textUpdate.senderId,
       transcript: textUpdate.text,
       ts: textUpdate.ts,
     });
-    await completeTelegramUpdate(textUpdate.updateId, "succeeded", result.request.runId);
+    const status = result.result.status === "success" ? "succeeded" : "failed";
+    await completeTelegramUpdate(
+      textUpdate.updateId,
+      status,
+      result.request.runId,
+      status === "succeeded" ? undefined : `Specialist ended with ${result.result.status}`,
+    );
     return result;
   } catch (error: unknown) {
     const message = errorMessage(error);
-    try {
-      await completeTelegramUpdate(textUpdate.updateId, "failed", undefined, message);
-    } catch (completionError: unknown) {
-      console.error("Telegram update failure could not be persisted", { message: errorMessage(completionError) });
+    if (result === undefined) {
+      try {
+        await completeTelegramUpdate(textUpdate.updateId, "failed", undefined, message);
+      } catch (completionError: unknown) {
+        console.error("Telegram update failure could not be persisted", { message: errorMessage(completionError) });
+      }
     }
     throw error;
   }

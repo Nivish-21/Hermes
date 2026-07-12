@@ -21,6 +21,13 @@ export const create = mutation({
     if (run === null || run.status !== "running") {
       throw new Error(`Cannot add a request to inactive run ${args.runId}`);
     }
+    const existing = await ctx.db.query("requests").withIndex("by_runIdAndId", (q) => q.eq("runId", args.runId).eq("id", args.id)).unique();
+    if (existing !== null) {
+      if (existing.channel !== args.channel || existing.requester !== args.requester || existing.transcript !== args.transcript || existing.ts !== args.ts) {
+        throw new Error(`Conflicting request replay ${args.runId}/${args.id}`);
+      }
+      return;
+    }
     const { ingestKey: _, ...request } = args;
     await ctx.db.insert("requests", request);
   },

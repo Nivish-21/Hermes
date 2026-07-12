@@ -22,6 +22,7 @@ export type ModelResponse<T> = {
 
 export type TracedModelResponse<T> = ModelResponse<T> & {
   traceId: string;
+  model: string;
 };
 
 export type ModelExecutor<T> = (
@@ -103,7 +104,7 @@ export async function callModel<T>(input: ModelCallInput<T>): Promise<TracedMode
       ts: Date.now(),
     };
     await recordTrace(node);
-    return { ...response, traceId: node.id };
+    return { ...response, traceId: node.id, model };
   } catch (error: unknown) {
     releaseBudget(input.context.runId, input.estimatedCostUsd);
     throw error;

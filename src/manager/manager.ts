@@ -7,7 +7,7 @@ import { callModel, type ModelResponse } from "../router/modelRouter.js";
 import { clearRunBudget } from "../router/budget.js";
 import { runMessagingTask } from "../specialists/messaging.js";
 import { runResearchTask, type ResearchBrief } from "../specialists/research.js";
-import { endRun, startRun } from "../trace/tracer.js";
+import { endRun, recordTrace, startRun } from "../trace/tracer.js";
 
 export type IncomingRequest = {
   id?: string;
@@ -223,7 +223,23 @@ async function reviewResult(
     estimatedCostUsd: estimatedModelCost(),
     execute: (modelId) => completeWithOpenAi(modelId, prompt),
   });
-  return parseReview(completion.value);
+  const review = parseReview(completion.value);
+  await recordTrace({
+    id: randomUUID(),
+    runId: request.runId,
+    requestId: request.id,
+    taskId: task.id,
+    parentId: completion.traceId,
+    kind: "verify",
+    model: completion.model,
+    promptTok: 0,
+    complTok: 0,
+    costUsd: 0,
+    latencyMs: 0,
+    verifyPass: review.accept,
+    ts: Date.now(),
+  });
+  return review;
 }
 
 function hasAttemptedResearchReply(evidence: unknown): boolean {

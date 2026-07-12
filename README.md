@@ -11,7 +11,7 @@ Every request is a `runId`-scoped run. Convex stores the execution trace and cos
 
 - `MANAGER_MODEL_ID` and `CHEAP_MODEL_ID` are loaded from the environment; no model IDs are hardcoded.
 - All Manager model calls go through `callModel()` and the per-run budget guard.
-- Telegram inbound requests require a sender in `TELEGRAM_ALLOWED_USERS`.
+- Telegram inbound requests require a private DM from a sender in `TELEGRAM_ALLOWED_USERS`.
 - Research replies only to `TELEGRAM_ALLOWED_USERS`.
 - Messaging posts only to `ALLOWED_CHANNEL_ID`.
 - Telegram updates are durably claimed in Convex to prevent replayed runner updates from creating duplicate actions.

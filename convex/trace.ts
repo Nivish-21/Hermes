@@ -131,6 +131,13 @@ export const endRun = mutation({
       ctx.db.query("traceNodes").withIndex("by_runId", (q) => q.eq("runId", args.runId)).collect(),
       ctx.db.query("tasks").withIndex("by_runId", (q) => q.eq("runId", args.runId)).collect(),
     ]);
+    const incompleteTasks = tasks.filter((task) => task.status === "pending" || task.status === "running");
+    await Promise.all(
+      incompleteTasks.map(async (task) => await ctx.db.patch(task._id, {
+        status: "failed",
+        evidence: JSON.stringify({ reason: "Run ended before task reached a terminal state" }),
+      })),
+    );
     const tasksById = new Map(tasks.map((task) => [task.id, task]));
     const latestVerifyByTask = new Map<string, (typeof nodes)[number]>();
     for (const node of nodes) {

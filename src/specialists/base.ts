@@ -119,10 +119,11 @@ export async function runOavr<TState, TAction, TEvidence>(
         ),
       );
       if (verificationTraceFailure !== undefined) {
-        lastEvidence = { reason: verificationTraceFailure };
         const recoveryFailure = await recoverSafely(definition, verificationTraceFailure, context);
         if (recoveryFailure !== undefined) {
-          lastEvidence = { reason: `${verificationTraceFailure}; ${recoveryFailure}` };
+          // Keep the verified action evidence intact: it may contain an irreversible
+          // delivery marker that forbids a Manager-level replay.
+          console.error("OAVR recovery failed after trace failure", { reason: recoveryFailure });
         }
         continue;
       }
