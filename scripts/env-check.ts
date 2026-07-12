@@ -2,7 +2,7 @@ import "dotenv/config";
 
 type EnvironmentRequirement = {
   name: string;
-  requiredFor: "core" | "research" | "messaging" | "dashboard" | "deployment";
+  requiredFor: "core" | "research" | "messaging" | "booking" | "dashboard" | "deployment";
   required: boolean;
 };
 
@@ -18,6 +18,11 @@ const requirements: EnvironmentRequirement[] = [
   { name: "TELEGRAM_ALLOWED_USERS", requiredFor: "messaging", required: true },
   { name: "ALLOWED_CHANNEL_ID", requiredFor: "messaging", required: true },
   { name: "LINKUP_API_KEY", requiredFor: "research", required: true },
+  { name: "CALCOM_API_KEY", requiredFor: "booking", required: true },
+  { name: "CALCOM_EVENT_TYPE_ID", requiredFor: "booking", required: true },
+  { name: "CALCOM_TIME_ZONE", requiredFor: "booking", required: true },
+  { name: "CALCOM_ATTENDEE_NAME", requiredFor: "booking", required: true },
+  { name: "CALCOM_ATTENDEE_EMAIL", requiredFor: "booking", required: true },
   { name: "VITE_CONVEX_URL", requiredFor: "dashboard", required: true },
   { name: "DASHBOARD_URL", requiredFor: "dashboard", required: false },
   { name: "FRONTIER_INPUT_USD_PER_MILLION_TOKENS", requiredFor: "dashboard", required: false },
@@ -51,6 +56,12 @@ if (allowedUsers.length > 0 && !allowedUsers.every((value) => /^\d+$/.test(value
 }
 if (isConfigured(process.env.ALLOWED_CHANNEL_ID) && !/^-?\d+$/.test(process.env.ALLOWED_CHANNEL_ID ?? "")) {
   invalid.push("ALLOWED_CHANNEL_ID must be a numeric Telegram chat or channel ID");
+}
+if (isConfigured(process.env.CALCOM_EVENT_TYPE_ID) && !/^[1-9]\d*$/.test(process.env.CALCOM_EVENT_TYPE_ID ?? "")) {
+  invalid.push("CALCOM_EVENT_TYPE_ID must be a positive integer");
+}
+if (isConfigured(process.env.CALCOM_ATTENDEE_EMAIL) && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(process.env.CALCOM_ATTENDEE_EMAIL ?? "")) {
+  invalid.push("CALCOM_ATTENDEE_EMAIL must be an email address");
 }
 
 if (missing.length > 0) {

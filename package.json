@@ -13,7 +13,7 @@
     "telegram:discover": "tsx scripts/telegram-discover.ts",
     "dashboard:dev": "vite --config dashboard/vite.config.ts",
     "dashboard:build": "vite build --config dashboard/vite.config.ts",
-    "dashboard:deploy": "npm run dashboard:build && npx wrangler pages deploy dashboard/dist --project-name \"${CLOUDFLARE_PROJECT_NAME:?CLOUDFLARE_PROJECT_NAME is required}\"",
+    "dashboard:deploy": "npm run dashboard:build && npx wrangler pages deploy dashboard/dist --project-name \"${CLOUDFLARE_PROJECT_NAME:-switchboard}\"",
     "convex:deploy": "npx convex deploy --typecheck enable"
   },
   "dependencies": {

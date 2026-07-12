@@ -90,13 +90,14 @@ function errorMessage(error: unknown): string {
 
 function helpText(): string {
   return [
-    "Switchboard can route a request to Research or Messaging.",
+    "Switchboard can route a request to Research, Messaging, or Booking.",
     "Use /ask followed by a plain-English request.",
     "Use /research followed by a research question.",
     "Use /message followed by text for the allowlisted team channel.",
+    "Use /book followed by a calendar request.",
     "Use /status or /cost for your latest run.",
     "Use /dashboard for the configured dashboard link.",
-    "/book and /publish are not live.",
+    "/publish is not live.",
   ].join("\n");
 }
 
@@ -112,7 +113,7 @@ async function sendPrivateReply(chatId: string, text: string): Promise<void> {
   }
 }
 
-async function commandAction(command: TelegramCommand, requester: string): Promise<CommandAction> {
+export async function resolveTelegramCommand(command: TelegramCommand, requester: string): Promise<CommandAction> {
   if (command.command === "start" || command.command === "help") {
     return { reply: helpText() };
   }
@@ -124,6 +125,9 @@ async function commandAction(command: TelegramCommand, requester: string): Promi
   }
   if (command.command === "message") {
     return command.argument === "" ? { reply: "Use /message followed by the exact team update to post." } : { prompt: `Post this exact message to the allowlisted team channel: ${command.argument}` };
+  }
+  if (command.command === "book") {
+    return command.argument === "" ? { reply: "Use /book followed by a calendar request." } : { prompt: `Book this calendar request: ${command.argument}` };
   }
   if (command.command === "status" || command.command === "cost") {
     const lastRun = await convexClient().query(api.operator.lastRunForRequester, {
@@ -142,7 +146,7 @@ async function commandAction(command: TelegramCommand, requester: string): Promi
     const dashboardUrl = process.env.DASHBOARD_URL?.trim();
     return { reply: dashboardUrl === undefined || dashboardUrl === "" ? "Dashboard URL is not configured yet." : dashboardUrl };
   }
-  if (command.command === "book" || command.command === "publish") {
+  if (command.command === "publish") {
     return { reply: `/${command.command} is pending and not available in the live Switchboard demo.` };
   }
   return { reply: helpText() };
@@ -186,7 +190,7 @@ export async function handleTelegramUpdate(update: unknown): Promise<ManagedRunR
   let result: ManagedRunResult | undefined;
   try {
     const command = parseTelegramCommand(textUpdate.text);
-    const action = command === null ? { prompt: textUpdate.text } : await commandAction(command, textUpdate.senderId);
+    const action = command === null ? { prompt: textUpdate.text } : await resolveTelegramCommand(command, textUpdate.senderId);
     if (action.reply !== undefined) {
       await sendPrivateReply(textUpdate.chatId, action.reply);
       await completeTelegramUpdate(textUpdate.updateId, "succeeded");
