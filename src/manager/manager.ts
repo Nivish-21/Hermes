@@ -5,6 +5,7 @@ import { api } from "../../convex/_generated/api.js";
 import type { Channel, Request, SpecialistId, Task, TaskResult } from "../lib/types.js";
 import { callModel, type ModelResponse } from "../router/modelRouter.js";
 import { clearRunBudget } from "../router/budget.js";
+import { normalizeBookingInstruction, runBookingTask } from "../specialists/booking.js";
 import { runMessagingTask } from "../specialists/messaging.js";
 import { runResearchTask, type ResearchBrief } from "../specialists/research.js";
 import { endRun, recordTrace, startRun } from "../trace/tracer.js";
@@ -114,7 +115,7 @@ function parsePlan(text: string): ManagerPlan {
   const parsed = parseJsonObject(text);
   const specialist = parsed.specialist;
   const instruction = parsed.instruction;
-  if ((specialist !== "research" && specialist !== "messaging") || typeof instruction !== "string" || instruction.trim() === "") {
+  if ((specialist !== "research" && specialist !== "messaging" && specialist !== "booking") || typeof instruction !== "string" || instruction.trim() === "") {
     throw new Error("Manager returned an invalid routing plan");
   }
   return { specialist, instruction };
@@ -186,10 +187,14 @@ async function saveResearchEvidence(task: Task, brief: ResearchBrief): Promise<v
 }
 
 async function routeRequest(request: Request): Promise<RoutedPlan> {
+  const bookingTimeZone = process.env.CALCOM_TIME_ZONE?.trim() || "UTC";
+  const currentTime = new Date().toISOString();
   const prompt = [
     "You are Switchboard's manager. Route this Telegram request to exactly one specialist.",
-    "Return JSON only: {\"specialist\":\"research\"|\"messaging\",\"instruction\":\"...\"}.",
-    "Use research for questions that need sourced web information. Use messaging for requests to post a message to the owned allowlisted channel.",
+    "Return JSON only: {\"specialist\":\"research\"|\"messaging\"|\"booking\",\"instruction\":\"...\"}.",
+    "Use research for sourced web information, messaging for posts to the owned allowlisted channel, and booking for calendar scheduling requests.",
+    "For booking only, instruction must itself be a JSON string with either {\"mode\":\"next_available\"} or {\"mode\":\"requested_time\",\"requestedStart\":\"ISO-8601 timestamp\"}. Include no names, email addresses, or free-form request text in that inner JSON.",
+    `Booking time context: current UTC time is ${currentTime}; calendar timezone is ${bookingTimeZone}.`,
     `Request: ${request.transcript}`,
   ].join("\n");
   const completion = await callModel({
@@ -263,6 +268,9 @@ async function executeTask(
       parentId,
     );
   }
+  if (task.template === "booking") {
+    return runBookingTask(task, request.requester, instruction, parentId);
+  }
   return runMessagingTask(task, request.requester, instruction, parentId);
 }
 
@@ -280,12 +288,15 @@ export async function manageRequest(incoming: IncomingRequest): Promise<ManagedR
   try {
     await persistRequest(request);
     const routed = await routeRequest(request);
+    const instruction = routed.plan.specialist === "booking"
+      ? normalizeBookingInstruction(routed.plan.instruction)
+      : routed.plan.instruction;
     const task: Task = {
       id: randomUUID(),
       runId,
       requestId: request.id,
       template: routed.plan.specialist,
-      params: { instruction: routed.plan.instruction },
+      params: { instruction },
     };
     await createTask(task);
     let result = await executeTask(request, task, routed.traceId);

@@ -1,5 +1,5 @@
 export type Channel = "text" | "voice" | "dictation";
-export type SpecialistId = "research" | "messaging"; // the whole MVP — just these two
+export type SpecialistId = "research" | "messaging" | "booking";
 
 // runId groups every node of ONE request together. The dashboard groups by it — do not omit it.
 export type Request = {

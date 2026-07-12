@@ -2,7 +2,7 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 const channel = v.union(v.literal("text"), v.literal("voice"), v.literal("dictation"));
-const specialist = v.union(v.literal("research"), v.literal("messaging"));
+const specialist = v.union(v.literal("research"), v.literal("messaging"), v.literal("booking"));
 const taskStatus = v.union(v.literal("pending"), v.literal("running"), v.literal("success"), v.literal("failed"), v.literal("escalated"));
 const traceKind = v.union(v.literal("manager"), v.literal("specialist"), v.literal("verify"), v.literal("escalation"));
 const telegramUpdateStatus = v.union(v.literal("claimed"), v.literal("succeeded"), v.literal("failed"));
