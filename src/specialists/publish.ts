@@ -3,6 +3,7 @@ import type { Task, TaskResult } from "../lib/types.js";
 import { runOavr, type OavrContext, type OavrTask } from "./base.js";
 
 const MAX_PUBLISH_CONTENT_BYTES = 25 * 1024 * 1024;
+const DEFAULT_VERIFICATION_BACKOFF_MS: readonly number[] = [0, 30_000, 60_000];
 
 type PublishInstruction = {
   content: string;
@@ -28,6 +29,17 @@ export type PublishEvidence = {
   alreadyPublished: boolean;
   deploymentAttempted: boolean;
   verifiedByFreshRead: boolean;
+};
+
+export type PublishCheckpoint = Pick<
+  PublishEvidence,
+  "liveUrl" | "kvKey" | "version" | "deploymentAttempted"
+>;
+
+type PublishOptions = {
+  saveCheckpoint?: (checkpoint: PublishCheckpoint) => Promise<void>;
+  verificationBackoffMs?: readonly number[];
+  sleep?: (delayMs: number) => Promise<void>;
 };
 
 type CloudflareEnvelope = {
@@ -133,10 +145,15 @@ function parseCloudflareEnvelope(value: unknown): CloudflareEnvelope {
   return { success: value.success };
 }
 
-async function writeContent(fetcher: typeof fetch, content: string): Promise<void> {
-  const response = await fetcher(cloudflareKvUrl(), {
+async function writeContent(
+  fetcher: typeof fetch,
+  content: string,
+  url: string,
+  headers: HeadersInit,
+): Promise<void> {
+  const response = await fetcher(url, {
     method: "PUT",
-    headers: cloudflareHeaders(true),
+    headers,
     body: content,
   });
   const envelope = parseCloudflareEnvelope(await response.json() as unknown);
@@ -149,20 +166,34 @@ function contentVersion(content: string): string {
   return createHash("sha256").update(content, "utf8").digest("hex");
 }
 
+async function sleep(delayMs: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+}
+
 export function createPublishDefinition(
   content: string,
   task: Task,
   fetcher: typeof fetch = fetch,
+  options: PublishOptions = {},
 ): OavrTask<PublishState, PublishAction, PublishEvidence> {
   const version = contentVersion(content);
+  const verificationBackoffMs = options.verificationBackoffMs ?? DEFAULT_VERIFICATION_BACKOFF_MS;
+  const wait = options.sleep ?? sleep;
   let deploymentAttempted = false;
   let completedAction: PublishAction | undefined;
+  let verificationAttempt = 0;
 
   return {
-    observe: async (): Promise<PublishState> => ({
-      currentContent: await readCurrentLiveContent(fetcher, task.id),
-    }),
+    observe: async (): Promise<PublishState> => {
+      if (completedAction !== undefined) {
+        return { currentContent: null };
+      }
+      return { currentContent: await readCurrentLiveContent(fetcher, task.id) };
+    },
     act: async (state): Promise<PublishAction> => {
+      if (completedAction !== undefined) {
+        return completedAction;
+      }
       if (state.currentContent === content) {
         completedAction = {
           content,
@@ -172,41 +203,69 @@ export function createPublishDefinition(
         };
         return completedAction;
       }
-      if (completedAction !== undefined) {
-        return completedAction;
-      }
       if (deploymentAttempted) {
         throw new Error("Cloudflare publish outcome is unknown; refusing to publish again");
       }
 
-      // Set the latch before starting the irreversible request. A timeout, malformed
-      // response, or verification failure must never permit another write.
+      const writeUrl = cloudflareKvUrl();
+      const writeHeaders = cloudflareHeaders(true);
+      const checkpoint: PublishCheckpoint = {
+        liveUrl: liveUrl().toString(),
+        kvKey: requiredEnv("CLOUDFLARE_PUBLISH_KEY"),
+        version,
+        deploymentAttempted: true,
+      };
+      await options.saveCheckpoint?.(checkpoint);
+
+      // Persist the marker and cache the action before starting the irreversible
+      // request. A timeout or malformed response must never permit another write,
+      // and verification must retain evidence that the write may have succeeded.
       deploymentAttempted = true;
-      await writeContent(fetcher, content);
       completedAction = {
         content,
         version,
         alreadyPublished: false,
         deploymentAttempted: true,
       };
+      try {
+        await writeContent(fetcher, content, writeUrl, writeHeaders);
+      } catch {
+        // The request may have reached Cloudflare. Verify the live target instead of
+        // throwing away the durable attempt marker or issuing another PUT.
+      }
       return completedAction;
     },
     verify: async (action): Promise<{ ok: boolean; evidence: PublishEvidence; reason?: string }> => {
+      const delayMs = verificationBackoffMs[verificationAttempt]
+        ?? verificationBackoffMs.at(-1)
+        ?? 0;
+      verificationAttempt += 1;
+      if (delayMs > 0) {
+        await wait(delayMs);
+      }
       const url = liveUrl();
       url.searchParams.set("switchboard_version", action.version);
-      const response = await fetcher(url, {
-        method: "GET",
-        cache: "no-store",
-        headers: { "cache-control": "no-cache" },
-      });
-      const body = await response.text();
-      const contentMatched = body === action.content;
-      const verifiedByFreshRead = response.status === 200 && contentMatched;
+      url.searchParams.set("switchboard_verify_attempt", String(verificationAttempt));
+      let httpStatus = 0;
+      let contentMatched = false;
+      try {
+        const response = await fetcher(url, {
+          method: "GET",
+          cache: "no-store",
+          headers: { "cache-control": "no-cache" },
+        });
+        httpStatus = response.status;
+        contentMatched = await response.text() === action.content;
+      } catch {
+        // Keep the durable deployment marker in OAVR evidence even when the live
+        // verification request itself has an ambiguous network outcome.
+      }
+      const verifiedByFreshRead = httpStatus === 200 && contentMatched;
       const evidence: PublishEvidence = {
         liveUrl: liveUrl().toString(),
         kvKey: requiredEnv("CLOUDFLARE_PUBLISH_KEY"),
         version: action.version,
-        httpStatus: response.status,
+        httpStatus,
         contentMatched,
         alreadyPublished: action.alreadyPublished,
         deploymentAttempted: action.deploymentAttempted,
@@ -226,6 +285,7 @@ export async function runPublishTask(
   task: Task,
   requester: string,
   instruction: string,
+  saveCheckpoint: (checkpoint: PublishCheckpoint) => Promise<void>,
   parentId?: string,
 ): Promise<TaskResult> {
   if (task.template !== "publish") {
@@ -237,5 +297,5 @@ export async function runPublishTask(
     requester,
     ...(parentId === undefined ? {} : { parentId }),
   };
-  return runOavr(createPublishDefinition(content, task), context);
+  return runOavr(createPublishDefinition(content, task, fetch, { saveCheckpoint }), context);
 }

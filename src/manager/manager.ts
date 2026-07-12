@@ -7,7 +7,11 @@ import { callModel, type ModelResponse } from "../router/modelRouter.js";
 import { clearRunBudget } from "../router/budget.js";
 import { normalizeBookingInstruction, runBookingTask } from "../specialists/booking.js";
 import { runMessagingTask } from "../specialists/messaging.js";
-import { normalizePublishInstruction, runPublishTask } from "../specialists/publish.js";
+import {
+  normalizePublishInstruction,
+  runPublishTask,
+  type PublishCheckpoint,
+} from "../specialists/publish.js";
 import { runResearchTask, type ResearchBrief } from "../specialists/research.js";
 import { endRun, recordTrace, startRun } from "../trace/tracer.js";
 
@@ -187,6 +191,20 @@ async function saveResearchEvidence(task: Task, brief: ResearchBrief): Promise<v
   });
 }
 
+async function savePublishCheckpoint(task: Task, checkpoint: PublishCheckpoint): Promise<void> {
+  await convexClient().mutation(api.tasks.update, {
+    ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+    id: task.id,
+    runId: task.runId,
+    status: "running",
+    attempts: 1,
+    modelPath: [],
+    costUsd: 0,
+    latencyMs: 0,
+    evidence: JSON.stringify(checkpoint),
+  });
+}
+
 async function routeRequest(request: Request): Promise<RoutedPlan> {
   const bookingTimeZone = process.env.CALCOM_TIME_ZONE?.trim() || "UTC";
   const currentTime = new Date().toISOString();
@@ -274,7 +292,13 @@ async function executeTask(
     return runBookingTask(task, request.requester, instruction, parentId);
   }
   if (task.template === "publish") {
-    return runPublishTask(task, request.requester, instruction, parentId);
+    return runPublishTask(
+      task,
+      request.requester,
+      instruction,
+      async (checkpoint) => savePublishCheckpoint(task, checkpoint),
+      parentId,
+    );
   }
   return runMessagingTask(task, request.requester, instruction, parentId);
 }
