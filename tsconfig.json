@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "strict": true,
     "noImplicitAny": true,
     "noUncheckedIndexedAccess": true,
@@ -13,5 +13,6 @@
     "lib": ["ES2022", "DOM"],
     "types": ["node", "react", "react-dom"]
   },
-  "include": ["convex/**/*.ts", "src/**/*.ts", "scripts/**/*.ts", "dashboard/**/*.ts", "dashboard/**/*.tsx"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "dashboard/**/*.ts", "dashboard/**/*.tsx"],
+  "exclude": ["convex/**/*.ts"]
 }

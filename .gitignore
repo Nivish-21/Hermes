@@ -1,7 +1,11 @@
 .claude/
 .env
+.env.local
+convex/_generated/
 .hermes/
 node_modules/
 .DS_Store
 switchboard-plan.md
 switchboard-coordination.md
+
+.env.local
