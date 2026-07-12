@@ -83,6 +83,21 @@ Telegram update
 
 A live end-to-end test remains intentionally deferred until the configured allowlisted Telegram user and private channel are accessible to the bot. Do not weaken allowlists to work around that prerequisite.
 
+## Telegram commands
+
+Commands are accepted only from private DMs whose sender is in `TELEGRAM_ALLOWED_USERS`.
+
+| Command | Behavior |
+| --- | --- |
+| `/start`, `/help` | Returns the supported-command guide. |
+| `/ask <request>` | Routes the plain-English request through the Manager. |
+| `/research <question>` | Routes a citation-backed research request through the Manager. |
+| `/message <text>` | Routes a post request to the single allowlisted team channel. |
+| `/status` | Returns the caller's latest private run and task status. |
+| `/cost` | Returns the caller's latest private run cost. |
+| `/dashboard` | Returns `DASHBOARD_URL` when configured. |
+| `/book`, `/publish` | Explicitly report that the feature is pending; no external booking or publishing action is attempted. |
+
 ## Dashboard
 
 The dashboard reads public sanitized Convex queries and displays:

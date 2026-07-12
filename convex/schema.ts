@@ -17,7 +17,7 @@ export default defineSchema({
     transcript: v.string(),
     ts: v.number(),
     status: v.string(),
-  }).index("by_runId", ["runId"]).index("by_runIdAndId", ["runId", "id"]),
+  }).index("by_runId", ["runId"]).index("by_runIdAndId", ["runId", "id"]).index("by_requesterAndTs", ["requester", "ts"]),
 
   telegramUpdates: defineTable({
     updateId: v.number(),
