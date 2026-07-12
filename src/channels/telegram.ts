@@ -35,9 +35,13 @@ type RequesterActivity = {
   frontierEstimateUsd: number;
 };
 
+type BetaSignupStatus = "pending" | "approved" | "blocked" | null;
+
 export type TelegramHandlerDependencies = {
   allowedUserIds: ReadonlySet<string>;
   dashboardUrl: string | null;
+  requestBetaSignup: (requester: string) => Promise<Exclude<BetaSignupStatus, null>>;
+  betaSignupStatus: (requester: string) => Promise<BetaSignupStatus>;
   claimUpdate: (update: TelegramTextUpdate) => Promise<{ claimed: boolean }>;
   completeUpdate: (
     updateId: number,
@@ -397,7 +401,28 @@ export function createTelegramUpdateHandler(
     if (textUpdate === null || textUpdate.text.trim() === "") {
       return null;
     }
-    if (!dependencies.allowedUserIds.has(textUpdate.senderId) || textUpdate.chatType !== "private" || textUpdate.chatId !== textUpdate.senderId) {
+    const command = parseTelegramCommand(textUpdate.text);
+    const isOperator = dependencies.allowedUserIds.has(textUpdate.senderId);
+    if (textUpdate.chatType !== "private" || textUpdate.chatId !== textUpdate.senderId) {
+      return null;
+    }
+    const betaStatus = isOperator ? "approved" : await dependencies.betaSignupStatus(textUpdate.senderId);
+    const hasBetaAccess = betaStatus === "approved";
+    if (!isOperator && !hasBetaAccess) {
+      if (command?.command === "start") {
+        const claim = await dependencies.claimUpdate(textUpdate);
+        if (!claim.claimed) {
+          return null;
+        }
+        const signupStatus = await dependencies.requestBetaSignup(textUpdate.senderId);
+        const reply = signupStatus === "approved"
+          ? "Your beta access is approved. Use /research to start."
+          : signupStatus === "blocked"
+            ? "Beta access is unavailable for this account."
+            : "Thanks for signing up. Your Switchboard beta access is pending approval.";
+        await dependencies.sendPrivateReply(textUpdate.senderId, reply);
+        await dependencies.completeUpdate(textUpdate.updateId, "succeeded");
+      }
       return null;
     }
 
@@ -405,10 +430,14 @@ export function createTelegramUpdateHandler(
     if (!claim.claimed) {
       return null;
     }
+    if (!isOperator && (command === null || !["start", "help", "research", "status", "cost", "dashboard"].includes(command.command))) {
+      await dependencies.sendPrivateReply(textUpdate.senderId, "Beta access currently supports /research, /status, /cost, and /dashboard. Workspace messaging, booking, publishing, and free-form routing require workspace approval.");
+      await dependencies.completeUpdate(textUpdate.updateId, "succeeded");
+      return null;
+    }
 
     let result: ManagedRunResult | undefined;
     try {
-      const command = parseTelegramCommand(textUpdate.text);
       result = command === null
         ? await dependencies.manageRequest({
           id: `telegram-${textUpdate.updateId}-${textUpdate.messageId}`,
@@ -444,6 +473,14 @@ function liveDependencies(): TelegramHandlerDependencies {
   return {
     allowedUserIds: allowedUserIds(),
     dashboardUrl: configuredDashboardUrl(process.env.DASHBOARD_URL),
+    requestBetaSignup: async (requester) => await convexClient().mutation(api.betaSignup.request, {
+      ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+      telegramUserId: requester,
+    }),
+    betaSignupStatus: async (requester) => await convexClient().query(api.betaSignup.status, {
+      ingestKey: requiredEnv("TRACE_INGEST_KEY"),
+      telegramUserId: requester,
+    }),
     claimUpdate: async (update) => convexClient().mutation(api.telegramUpdates.claim, {
       ingestKey: requiredEnv("TRACE_INGEST_KEY"),
       updateId: update.updateId,

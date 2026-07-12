@@ -6,6 +6,7 @@ const specialist = v.union(v.literal("research"), v.literal("messaging"), v.lite
 const taskStatus = v.union(v.literal("pending"), v.literal("running"), v.literal("success"), v.literal("failed"), v.literal("escalated"));
 const traceKind = v.union(v.literal("manager"), v.literal("specialist"), v.literal("verify"), v.literal("escalation"));
 const telegramUpdateStatus = v.union(v.literal("claimed"), v.literal("succeeded"), v.literal("failed"));
+const betaSignupStatus = v.union(v.literal("pending"), v.literal("approved"), v.literal("blocked"));
 const params = v.record(v.string(), v.union(v.string(), v.number(), v.boolean(), v.null()));
 
 export default defineSchema({
@@ -29,6 +30,13 @@ export default defineSchema({
     error: v.optional(v.string()),
     completedAt: v.optional(v.number()),
   }).index("by_updateId", ["updateId"]),
+
+  betaSignups: defineTable({
+    telegramUserId: v.string(),
+    status: betaSignupStatus,
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_telegramUserId", ["telegramUserId"]).index("by_status", ["status"]),
 
   tasks: defineTable({
     id: v.string(),

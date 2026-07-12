@@ -54,10 +54,11 @@ function successfulRun(transcript: string, runId = "run-1"): ManagedRunResult {
   };
 }
 
-function harness(options: { claimed?: boolean; dashboardUrl?: string | null; replyError?: Error } = {}): {
+function harness(options: { allowedUserIds?: ReadonlySet<string>; claimed?: boolean; dashboardUrl?: string | null; replyError?: Error; betaSignupStatus?: "pending" | "approved" | "blocked" | null } = {}): {
   handle: ReturnType<typeof createTelegramUpdateHandler>;
   managerTranscripts: string[];
   directCalls: DirectCall[];
+  signupRequesters: string[];
   replies: string[];
   replyRecipients: string[];
   completions: Completion[];
@@ -65,13 +66,19 @@ function harness(options: { claimed?: boolean; dashboardUrl?: string | null; rep
 } {
   const managerTranscripts: string[] = [];
   const directCalls: DirectCall[] = [];
+  const signupRequesters: string[] = [];
   const replies: string[] = [];
   const replyRecipients: string[] = [];
   const completions: Completion[] = [];
   const claims: number[] = [];
   const dependencies: TelegramHandlerDependencies = {
-    allowedUserIds: new Set(["42"]),
+    allowedUserIds: options.allowedUserIds ?? new Set(["42"]),
     dashboardUrl: options.dashboardUrl ?? null,
+    requestBetaSignup: async (requester) => {
+      signupRequesters.push(requester);
+      return options.betaSignupStatus ?? "pending";
+    },
+    betaSignupStatus: async () => options.betaSignupStatus ?? null,
     claimUpdate: async (textUpdate) => {
       claims.push(textUpdate.updateId);
       return { claimed: options.claimed ?? true };
@@ -105,6 +112,7 @@ function harness(options: { claimed?: boolean; dashboardUrl?: string | null; rep
     handle: createTelegramUpdateHandler(dependencies),
     managerTranscripts,
     directCalls,
+    signupRequesters,
     replies,
     replyRecipients,
     completions,
@@ -172,6 +180,25 @@ test("requires an explicit valid HTTPS dashboard deployment URL", () => {
   assert.equal(configuredDashboardUrl("not-a-url"), null);
   assert.equal(configuredDashboardUrl("http://dashboard.example.com"), null);
   assert.equal(configuredDashboardUrl("https://dashboard.example.com/path"), "https://dashboard.example.com/path");
+});
+
+test("/start creates a pending beta signup for a new private user", async () => {
+  const state = harness({ allowedUserIds: new Set() });
+  await state.handle(update("/start", 99));
+  assert.deepEqual(state.signupRequesters, ["99"]);
+  assert.match(state.replies[0] ?? "", /beta access is pending/i);
+  assert.deepEqual(state.completions, [{ updateId: 10, status: "succeeded" }]);
+});
+
+test("approved beta users can research but cannot invoke shared workspace actions", async () => {
+  const research = harness({ allowedUserIds: new Set(), betaSignupStatus: "approved" });
+  await research.handle(update("/research safe beta query", 99));
+  assert.deepEqual(research.directCalls, [{ template: "research", instruction: "safe beta query" }]);
+
+  const messaging = harness({ allowedUserIds: new Set(), betaSignupStatus: "approved" });
+  await messaging.handle(update("/message shared channel post", 99));
+  assert.equal(messaging.directCalls.length, 0);
+  assert.match(messaging.replies[0] ?? "", /workspace approval/i);
 });
 
 test("/start and /help reply immediately without invoking the Manager", async () => {

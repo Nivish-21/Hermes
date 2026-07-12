@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as betaSignup from "../betaSignup.js";
 import type * as dashboard from "../dashboard.js";
 import type * as ingest from "../ingest.js";
 import type * as operator from "../operator.js";
@@ -24,6 +25,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  betaSignup: typeof betaSignup;
   dashboard: typeof dashboard;
   ingest: typeof ingest;
   operator: typeof operator;

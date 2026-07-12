@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --test test/*.test.ts dashboard/test/*.test.ts",
     "env:check": "tsx scripts/env-check.ts",
     "preflight": "tsx scripts/preflight.ts",
     "seed": "tsx scripts/seed.ts",

@@ -83,9 +83,22 @@ Telegram update
 
 A live end-to-end test remains intentionally deferred until the configured allowlisted Telegram user and private channel are accessible to the bot. Do not weaken allowlists to work around that prerequisite.
 
+## Public beta onboarding
+
+New people can privately message `@Switchboardxbot` and send `/start`. Their Telegram ID is stored as a pending beta application; it does not grant operational access automatically.
+
+Approve or block an application from the operator machine without editing environment allowlists:
+
+```sh
+npx tsx scripts/approve-beta-user.ts <telegram-user-id> approved
+npx tsx scripts/approve-beta-user.ts <telegram-user-id> blocked
+```
+
+Approved beta users can use `/research`, `/status`, `/cost`, `/dashboard`, `/start`, and `/help` in private DMs. Shared-channel messaging, booking, publishing, and free-form Manager routing remain operator-only until workspace-level destination permissions and user authentication are configured.
+
 ## Telegram commands
 
-Commands are accepted only from private DMs whose sender is in `TELEGRAM_ALLOWED_USERS`.
+Commands are accepted only from private DMs. Operator accounts in `TELEGRAM_ALLOWED_USERS` can use the full live command surface; approved beta users receive the restricted research-only access described above.
 
 | Command | Behavior |
 | --- | --- |
