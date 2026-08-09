@@ -1,9 +1,11 @@
 # Switchboard
 
-Switchboard is a Telegram-based AI operations desk with two bounded, real-action specialists:
+Switchboard is a Telegram-based AI operations desk with four bounded, real-action specialists:
 
 - **Research** — searches Linkup, persists a citation-backed brief, replies only to allowlisted Telegram users, and verifies citations resolve.
 - **Messaging** — posts only to one allowlisted Telegram channel and verifies the target channel before and after delivery.
+- **Booking** — finds an owned Cal.com event-type slot, creates one booking, and verifies it with a fresh API read.
+- **Publishing** — writes content to one configured Cloudflare Workers KV key and verifies the fixed HTTPS target returns the exact content.
 
 Every request is a `runId`-scoped run. Convex stores the execution trace and cost telemetry, while the Vite dashboard shows a sanitized public projection of run status, cost, and the manager → specialist → verification tree.
 
@@ -14,6 +16,8 @@ Every request is a `runId`-scoped run. Convex stores the execution trace and cos
 - Telegram inbound requests require a private DM from a sender in `TELEGRAM_ALLOWED_USERS`.
 - Research replies only to `TELEGRAM_ALLOWED_USERS`.
 - Messaging posts only to `ALLOWED_CHANNEL_ID`.
+- Booking targets one configured Cal.com event type and attendee; ambiguous booking outcomes are never replayed.
+- Publishing targets one configured KV namespace/key and live URL; an uncertain write is verified, never blindly repeated.
 - Telegram updates are durably claimed in Convex to prevent replayed runner updates from creating duplicate actions.
 - An uncertain Telegram delivery is never retried automatically.
 - The public dashboard never reads requests, transcripts, requesters, task params, task IDs, or Convex document IDs.
@@ -21,11 +25,12 @@ Every request is a `runId`-scoped run. Convex stores the execution trace and cos
 
 ## Requirements
 
-- Node.js 22+
+- Node.js 22.12+
 - An OpenAI project with access to the configured Manager and cheap-tier models
 - Convex deployment
 - Telegram bot and owned private target channel
 - Linkup API key
+- Optional by specialist: owned Cal.com event type and Cloudflare Workers KV/live endpoint
 - Optional: Cloudflare Pages account for public dashboard deployment
 
 Copy the committed `.env.example` to an ignored `.env` and populate it locally. Do not paste values into issues, pull requests, commits, or chat.
@@ -76,7 +81,7 @@ Telegram update
 → durable update claim
 → Manager routing
 → persisted task
-→ Research or Messaging OAVR execution
+→ Research, Messaging, Booking, or Publishing OAVR execution
 → verification + protected Convex traces
 → sanitized live dashboard
 ```
@@ -106,12 +111,13 @@ Commands are accepted only from private DMs. Operator accounts in `TELEGRAM_ALLO
 | --- | --- |
 | `/start`, `/help` | Returns the supported-command guide. |
 | `/ask <request>` | Routes the plain-English request through the Manager. |
-| `/research <question>` | Routes a citation-backed research request through the Manager. |
-| `/message <text>` | Routes a post request to the single allowlisted team channel. |
+| `/research <question>` | Runs the citation-backed Research specialist directly. |
+| `/message <text>` | Runs Messaging directly against the single allowlisted team channel. |
 | `/status` | Returns the caller's latest private run and task status. |
 | `/cost` | Returns the caller's latest private run cost. |
 | `/dashboard` | Returns `DASHBOARD_URL` when configured. |
-| `/book`, `/publish` | Explicitly report that the feature is pending; no external booking or publishing action is attempted. |
+| `/book [ISO-8601 time]` | Books the next available Cal.com slot, or the requested timezone-explicit instant. |
+| `/publish` | Reports that the direct command is pending. Operators can still reach the implemented Publishing specialist through `/ask` when its fixed Cloudflare target is configured. |
 
 ## Dashboard
 
@@ -156,7 +162,7 @@ The same bundle includes the registration landing, `/dashboard`, Terms, and Priv
 - `src/channels/telegram.ts` — allowlisted Telegram intake and durable update claim lifecycle
 - `src/manager/manager.ts` — Manager routing, review, task persistence, and run lifecycle
 - `src/router/` — environment-selected models and per-run budget enforcement
-- `src/specialists/` — OAVR execution for Research and Messaging
+- `src/specialists/` — OAVR execution for Research, Messaging, Booking, and Publishing
 - `src/trace/tracer.ts` — frozen `startRun`, `recordTrace`, and `endRun` integration seam
 - `convex/` — protected ingestion, trace lifecycle, sanitized dashboard queries, and durable Telegram update claims
 - `dashboard/` — live React dashboard
